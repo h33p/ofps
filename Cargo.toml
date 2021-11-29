@@ -1,0 +1,15 @@
+
+[workspace]
+members = [
+	"motion-vectors",
+	"camera-tracker",
+	"mvec-av",
+	"ptrplus"
+]
+
+default-members = [
+	"motion-vectors",
+	"camera-tracker",
+	"mvec-av",
+]
+

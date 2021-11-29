@@ -1,0 +1,14 @@
+[package]
+name = "mvec-av"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+motion-vectors = { version = "0.1", path = "../motion-vectors" }
+nalgebra = "0.29"
+ffmpeg-sys = "4.3"
+libc = "*"
+c_str_macro = "1"
+log = "0.4"
