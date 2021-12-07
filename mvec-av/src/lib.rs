@@ -148,6 +148,8 @@ pub struct AvDecoder<T> {
     aspect_ratio: (usize, usize),
     aspect_ratio_scale: (usize, usize),
     max_mfield_size: (usize, usize),
+    sws_av_frame: &'static mut AVFrame,
+    sws_ctx: Option<&'static mut SwsContext>,
 }
 
 impl<T> Drop for AvDecoder<T> {
@@ -157,6 +159,10 @@ impl<T> Drop for AvDecoder<T> {
         unsafe {
             av_frame_free(&mut (self.av_frame as *mut _));
             avcodec_free_context(&mut (self.codec_ctx as *mut _));
+            av_frame_free(&mut (self.sws_av_frame as *mut _));
+            if let Some(sws_ctx) = self.sws_ctx.take() {
+                sws_freeContext(sws_ctx);
+            }
         };
     }
 }
@@ -263,6 +269,20 @@ impl<T: Read + Seek> AvDecoder<T> {
 
         let av_frame = unsafe { av_frame_alloc().as_mut() }.ok_or("Unable to allocate frame")?;
 
+        let sws_av_frame =
+            unsafe { av_frame_alloc().as_mut() }.ok_or("Unable to allocate sws frame")?;
+
+        println!(
+            "{:x} {:x}",
+            codec_ctx.pix_fmt as usize,
+            AVPixelFormat::AV_PIX_FMT_RGBA as usize
+        );
+        println!(
+            "{:?} {:?}",
+            unsafe { av_pix_fmt_desc_get(codec_ctx.pix_fmt) },
+            unsafe { av_pix_fmt_desc_get(AVPixelFormat::AV_PIX_FMT_RGBA) }
+        );
+
         Ok(Self {
             av_ctx,
             codec_ctx,
@@ -272,6 +292,8 @@ impl<T: Read + Seek> AvDecoder<T> {
             aspect_ratio: (0, 0),
             aspect_ratio_scale,
             max_mfield_size,
+            sws_av_frame,
+            sws_ctx: None,
         })
     }
 
@@ -280,7 +302,12 @@ impl<T: Read + Seek> AvDecoder<T> {
 
     // HEVC uses CTUs: https://en.wikipedia.org/wiki/Coding_tree_unit
 
-    pub fn extract_mvs(&mut self, packet: &mut AVPacket, mf: &mut MotionField) -> Result<bool> {
+    pub fn extract_mvs(
+        &mut self,
+        packet: &mut AVPacket,
+        mf: &mut MotionField,
+        out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
+    ) -> Result<bool> {
         match unsafe { avcodec_send_packet(self.codec_ctx, packet) } {
             e if e < 0 => return Err(format!("Failed to send packet ({})", e).into()),
             _ => {}
@@ -306,6 +333,67 @@ impl<T: Read + Seek> AvDecoder<T> {
                 *mf = MotionField::new(w, h)
             }
 
+            if let Some((out_frame, out_height)) = out_frame {
+                out_frame.clear();
+
+                // https://stackoverflow.com/questions/41196429/ffmpeg-avframe-to-per-channel-array-conversion
+                let sws_ctx = match self.sws_ctx.take() {
+                    Some(ctx) => ctx,
+                    None => unsafe {
+                        let sws_frame = &mut self.sws_av_frame;
+
+                        sws_frame.format = AVPixelFormat::AV_PIX_FMT_RGBA as _;
+                        sws_frame.width = frame.width;
+                        sws_frame.height = frame.height;
+
+                        av_frame_get_buffer(*sws_frame, 32);
+
+                        sws_getContext(
+                            frame.width,
+                            frame.height,
+                            std::mem::transmute(frame.format),
+                            sws_frame.width,
+                            sws_frame.height,
+                            std::mem::transmute(sws_frame.format),
+                            0,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                            ptr::null(),
+                        )
+                        .as_mut()
+                    }
+                    .ok_or("Unable to allocate sws context")?,
+                };
+
+                let sws_frame = &mut self.sws_av_frame;
+
+                unsafe {
+                    sws_scale(
+                        sws_ctx,
+                        frame.data.as_ptr() as *const *const _,
+                        frame.linesize.as_ptr(),
+                        0,
+                        frame.height,
+                        sws_frame.data.as_mut_ptr(),
+                        sws_frame.linesize.as_mut_ptr(),
+                    )
+                };
+
+                let frame_data = sws_frame.data[0];
+                let linesize = sws_frame.linesize[0] as usize;
+                let width = sws_frame.width as usize;
+                *out_height = sws_frame.height as usize;
+                for y in 0..*out_height {
+                    let frame_slice =
+                        unsafe { slice::from_raw_parts(frame_data.add(linesize * y), width * 4) };
+                    for chunk in frame_slice.chunks_exact(4) {
+                        out_frame.push(RGBA::from_rgb_slice(chunk));
+                    }
+                }
+
+                self.sws_ctx = Some(sws_ctx);
+            }
+
             if let Some(side_data) = unsafe {
                 av_frame_get_side_data(&*frame, AVFrameSideDataType::AV_FRAME_DATA_MOTION_VECTORS)
                     .as_ref()
@@ -320,8 +408,9 @@ impl<T: Read + Seek> AvDecoder<T> {
                 let frame_norm =
                     na::Vector2::new(1f32 / frame.width as f32, 1f32 / frame.height as f32);
 
+                // TODO: use dst or src?
                 for mv in motion_vectors {
-                    let pos = na::Vector2::new(mv.src_x as f32, mv.src_y as f32)
+                    let pos = na::Vector2::new(mv.dst_x as f32, mv.dst_y as f32)
                         .component_mul(&frame_norm)
                         .into();
                     let motion = na::Vector2::new(mv.motion_x as f32, mv.motion_y as f32)
@@ -345,7 +434,11 @@ impl<T: Read + Seek> AvDecoder<T> {
 }
 
 impl<T: Read + Seek> Decoder for AvDecoder<T> {
-    fn process_frame(&mut self, mf: &mut MotionField) -> Result<bool> {
+    fn process_frame(
+        &mut self,
+        mf: &mut MotionField,
+        mut out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
+    ) -> Result<bool> {
         let mut packet = MaybeUninit::uninit();
         let mut reached_stream = false;
         let mut ret = false;
@@ -361,7 +454,7 @@ impl<T: Read + Seek> Decoder for AvDecoder<T> {
                     if packet.stream_index == self.stream_idx {
                         debug!("Reached wanted stream!");
                         reached_stream = true;
-                        ret = self.extract_mvs(packet, mf)?;
+                        ret = self.extract_mvs(packet, mf, out_frame.take())?;
                     }
 
                     unsafe { av_packet_unref(packet) };

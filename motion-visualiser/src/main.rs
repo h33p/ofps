@@ -11,13 +11,14 @@ use winit::{
 };
 
 mod renderer;
+mod texture;
 
-use renderer::RenderState;
+use renderer::{RenderError, RenderState};
 
 fn create_decoder(input: &str) -> Result<impl Decoder> {
     let f = File::open(input)?;
 
-    let max_size = (200, 200);
+    let max_size = (80, 80);
 
     // Mul width by 2, because of character width
     let mut c = AvDecoder::try_new(f.into(), (1, 1), max_size)?;
@@ -58,13 +59,16 @@ fn main() -> Result<()> {
 
     let mut cnt = 0;
 
+    let mut rgba_frame = vec![];
+    let mut rgba_width = 0;
+
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
             let target_time = Duration::from_secs_f64(interval * cnt as f64);
             let curtime = start.elapsed();
 
             if curtime >= target_time {
-                if let Err(e) = c.process_frame(&mut mf) {
+                if let Err(e) = c.process_frame(&mut mf, Some((&mut rgba_frame, &mut rgba_width))) {
                     error!("{}", e);
                     *control_flow = ControlFlow::Exit;
                     return;
@@ -74,14 +78,22 @@ fn main() -> Result<()> {
             }
 
             state.update();
-            match state.render(&mf) {
+            match state.render(&mf, rgba_frame.as_slice(), rgba_width) {
                 Ok(_) => {}
-                // Reconfigure the surface if lost
-                Err(wgpu::SurfaceError::Lost) => state.resize(None),
-                // The system is out of memory, we should probably quit
-                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                Err(e) => eprintln!("{:?}", e),
+                Err(RenderError::Surface(e)) => {
+                    match e {
+                        // Reconfigure the surface if lost
+                        wgpu::SurfaceError::Lost => state.resize(None),
+                        // The system is out of memory, we should probably quit
+                        wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
+                        // All other errors (Outdated, Timeout) should be resolved by the next frame
+                        e => eprintln!("{:?}", e),
+                    }
+                }
+                Err(RenderError::Other(e)) => {
+                    error!("{}", e);
+                    *control_flow = ControlFlow::Exit
+                }
             }
         }
         Event::WindowEvent {

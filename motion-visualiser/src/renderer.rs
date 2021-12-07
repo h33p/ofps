@@ -1,3 +1,4 @@
+use crate::texture::Texture;
 use log::*;
 use motion_vectors::prelude::v1::*;
 use wgpu::util::DeviceExt;
@@ -13,9 +14,11 @@ pub struct RenderState {
     config: SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
     vertex_buffer: Option<Buffer>,
     vertex_motion_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
+    texture: Option<Texture>,
     num_indices: u32,
 }
 
@@ -68,14 +71,44 @@ impl RenderState {
 
         surface.configure(&device, &config);
 
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler {
+                            // This is only for TextureSampleType::Depth
+                            comparison: false,
+                            // This should be true if the sample_type of the texture is:
+                            //     TextureSampleType::Float { filterable: true }
+                            // Otherwise you'll get an error.
+                            filtering: true,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+
         let shader = device.create_shader_module(&ShaderModuleDescriptor {
-            label: Some("Shader"),
-            source: ShaderSource::Wgsl(include_str!("screen_shader.wgsl").into()),
+            label: Some("Screen Shader"),
+            source: ShaderSource::Wgsl(include_str!("shaders/screen_shader.wgsl").into()),
         });
 
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&texture_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -122,10 +155,12 @@ impl RenderState {
             queue,
             config,
             size,
+            texture_bind_group_layout,
             render_pipeline,
             vertex_buffer: None,
             vertex_motion_buffer: None,
             index_buffer: None,
+            texture: None,
             num_indices: 0,
         })
     }
@@ -148,7 +183,12 @@ impl RenderState {
 
     pub fn update(&mut self) {}
 
-    pub fn render(&mut self, mfield: &MotionField) -> std::result::Result<(), SurfaceError> {
+    pub fn render(
+        &mut self,
+        mfield: &MotionField,
+        video_frame: &[RGBA],
+        video_height: usize,
+    ) -> std::result::Result<(), RenderError> {
         let output = self.surface.get_current_texture()?;
 
         let view = output
@@ -203,14 +243,15 @@ impl RenderState {
                     .flat_map(|y| (0..(width - 1)).map(move |x| (x, y)))
                     .map(|(x, y)| (x as u32, y as u32))
                     .flat_map(|(x, y)| {
-                        std::array::IntoIter::new([
+                        // Map a single square into 2 triangles
+                        [
                             vmap(x, y),
                             vmap(x, y + 1),
                             vmap(x + 1, y),
                             vmap(x + 1, y),
                             vmap(x, y + 1),
                             vmap(x + 1, y + 1),
-                        ])
+                        ]
                     })
                     .collect::<Vec<u32>>();
 
@@ -241,6 +282,38 @@ impl RenderState {
                 .write_buffer(vmbuf, 0, bytemuck::cast_slice(mfield.as_slice()));
         }
 
+        let (video_frame, video_height) = if video_frame.len() > 0 && video_height > 0 {
+            (video_frame, video_height)
+        } else {
+            (
+                &[RGBA {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                }][..],
+                1,
+            )
+        };
+
+        self.texture = match self.texture.take() {
+            Some(texture) => Some(texture.update_texture(
+                &self.device,
+                &self.queue,
+                &self.texture_bind_group_layout,
+                video_frame,
+                video_height,
+            )?),
+            None => Some(Texture::from_rgba_frame(
+                &self.device,
+                &self.queue,
+                &self.texture_bind_group_layout,
+                Some("Video Frame"),
+                video_frame,
+                video_height,
+            )?),
+        };
+
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -262,6 +335,9 @@ impl RenderState {
 
             if let Some((vbuf, vmbuf, ibuf)) = bufs {
                 render_pass.set_pipeline(&self.render_pipeline);
+                if let Some(tex) = &self.texture {
+                    render_pass.set_bind_group(0, &tex.bind_group, &[]);
+                }
                 render_pass.set_vertex_buffer(0, vbuf.slice(..));
                 render_pass.set_vertex_buffer(1, vmbuf.slice(..));
                 render_pass.set_index_buffer(ibuf.slice(..), IndexFormat::Uint32);
@@ -274,5 +350,22 @@ impl RenderState {
         output.present();
 
         Ok(())
+    }
+}
+
+pub enum RenderError {
+    Surface(SurfaceError),
+    Other(Box<dyn std::error::Error>),
+}
+
+impl From<SurfaceError> for RenderError {
+    fn from(err: SurfaceError) -> Self {
+        Self::Surface(err)
+    }
+}
+
+impl From<Box<dyn std::error::Error>> for RenderError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        Self::Other(err)
     }
 }
