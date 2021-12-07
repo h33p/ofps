@@ -1,15 +1,17 @@
 
 [workspace]
+resolver = "2"
+
 members = [
 	"motion-vectors",
-	"camera-tracker",
+	"motion-visualiser",
 	"mvec-av",
 	"ptrplus"
 ]
 
 default-members = [
 	"motion-vectors",
-	"camera-tracker",
+	"motion-visualiser",
 	"mvec-av",
 ]
 

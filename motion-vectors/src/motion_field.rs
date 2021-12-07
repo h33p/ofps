@@ -21,6 +21,14 @@ impl MotionField {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.vf.ncols()
+    }
+
+    pub fn as_slice(&self) -> &[f32] {
+        self.vf.as_slice()
+    }
+
     pub fn new_downscale(&self) -> DownscaleMotionField {
         let (w, h) = self.dim();
         DownscaleMotionField::new(w, h)

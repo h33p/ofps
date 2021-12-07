@@ -342,8 +342,10 @@ impl<T: Read + Seek> AvDecoder<T> {
             Ok(false)
         }
     }
+}
 
-    pub fn process_frame(&mut self, mf: &mut MotionField) -> Result<bool> {
+impl<T: Read + Seek> Decoder for AvDecoder<T> {
+    fn process_frame(&mut self, mf: &mut MotionField) -> Result<bool> {
         let mut packet = MaybeUninit::uninit();
         let mut reached_stream = false;
         let mut ret = false;
@@ -370,11 +372,11 @@ impl<T: Read + Seek> AvDecoder<T> {
         Ok(ret)
     }
 
-    pub fn get_framerate(&self) -> f64 {
-        self.framerate
+    fn get_framerate(&self) -> Option<f64> {
+        Some(self.framerate)
     }
 
-    pub fn get_aspect(&self) -> (usize, usize) {
-        self.aspect_ratio
+    fn get_aspect(&self) -> Option<(usize, usize)> {
+        Some(self.aspect_ratio)
     }
 }

@@ -1,5 +1,5 @@
 [package]
-name = "camera-tracker"
+name = "motion-visualiser"
 version = "0.1.0"
 edition = "2018"
 
@@ -9,3 +9,13 @@ edition = "2018"
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
 terminal_size = "0.1"
 mvec-av = { version = "0.1", path = "../mvec-av" }
+env_logger = "0.9"
+log = "0.4"
+
+# wgpu dependencies
+image = "0.23"
+winit = "0.25"
+cgmath = "0.18"
+wgpu = "0.11"
+pollster = "0.2"
+bytemuck = { version = "1.4", features = [ "derive" ] }

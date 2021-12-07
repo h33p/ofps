@@ -6,6 +6,7 @@ pub mod utils;
 pub mod prelude {
     pub mod v1 {
         pub use crate::{
+            decoder::Decoder,
             motion_field::{DownscaleMotionField, MotionField},
             result::Result,
         };
