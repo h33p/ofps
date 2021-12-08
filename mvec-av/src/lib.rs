@@ -419,6 +419,8 @@ impl<T: Read + Seek> AvDecoder<T> {
                     downscale_mf.add_vector(pos, motion);
                 }
 
+                downscale_mf.interpolate_empty_cells()?;
+
                 mf.from_downscale(&downscale_mf);
 
                 Ok(true)

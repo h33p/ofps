@@ -18,7 +18,7 @@ use renderer::{RenderError, RenderState};
 fn create_decoder(input: &str) -> Result<impl Decoder> {
     let f = File::open(input)?;
 
-    let max_size = (80, 80);
+    let max_size = (150, 150);
 
     // Mul width by 2, because of character width
     let mut c = AvDecoder::try_new(f.into(), (1, 1), max_size)?;

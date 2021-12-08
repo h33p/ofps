@@ -1,4 +1,7 @@
 
+[profile.release]
+debug = true
+
 [workspace]
 resolver = "2"
 
