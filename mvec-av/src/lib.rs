@@ -47,13 +47,13 @@ impl DerefMut for AvBuf {
     }
 }
 
-pub struct AvContext<T> {
-    _stream: Box<T>,
+pub struct AvContext<T: ?Sized> {
+    _stream: Box<Box<T>>,
     pub fmt_ctx: &'static mut AVFormatContext,
     pub avio_ctx: &'static mut AVIOContext,
 }
 
-impl<T> Drop for AvContext<T> {
+impl<T: ?Sized> Drop for AvContext<T> {
     fn drop(&mut self) {
         // SAFETY: the references will be dangling,
         // but after the drop nobody will read them.
@@ -65,16 +65,20 @@ impl<T> Drop for AvContext<T> {
     }
 }
 
-impl<T: Read + Seek> AvContext<T> {
-    pub fn try_new(mut stream: Box<T>) -> Result<Self> {
+impl<T: Read + ?Sized> AvContext<T> {
+    pub fn try_new(stream: Box<T>) -> Result<Self> {
         let mut buf = AvBuf::try_new(8196)?;
 
+        let mut stream: Box<Box<T>> = stream.into();
+
+        // SAFETY: Box<T> stream is being passed, which is the expected stream type in the
+        // read_callback function.
         let avio_ctx = unsafe {
             avio_alloc_context(
                 buf.as_mut_ptr(),
                 buf.len() as _,
                 0,
-                (&mut *stream) as *mut T as *mut _,
+                (&mut *stream) as *mut Box<T> as *mut _,
                 Some(Self::read_callback),
                 None,
                 None,
@@ -120,7 +124,7 @@ impl<T: Read + Seek> AvContext<T> {
         buf: *mut u8,
         buf_size: c_int,
     ) -> c_int {
-        (*(opaque as *mut T))
+        (*(opaque as *mut Box<T>))
             .read(slice::from_raw_parts_mut(buf, buf_size as _))
             .map(|r| r as c_int)
             .map(|r| {
@@ -139,7 +143,7 @@ impl<T: Read + Seek> AvContext<T> {
     }
 }
 
-pub struct AvDecoder<T> {
+pub struct AvDecoder<T: ?Sized> {
     pub av_ctx: AvContext<T>,
     codec_ctx: &'static mut AVCodecContext,
     av_frame: &'static mut AVFrame,
@@ -152,7 +156,7 @@ pub struct AvDecoder<T> {
     sws_ctx: Option<&'static mut SwsContext>,
 }
 
-impl<T> Drop for AvDecoder<T> {
+impl<T: ?Sized> Drop for AvDecoder<T> {
     fn drop(&mut self) {
         // SAFETY: the references will be dangling,
         // but after the drop nobody will read them.
@@ -202,7 +206,7 @@ impl<'a> DerefMut for RefFrame<'a> {
     }
 }
 
-impl<T: Read + Seek> AvDecoder<T> {
+impl<T: Read + ?Sized> AvDecoder<T> {
     pub fn try_new(
         stream: Box<T>,
         aspect_ratio_scale: (usize, usize),
@@ -410,13 +414,20 @@ impl<T: Read + Seek> AvDecoder<T> {
 
                 // TODO: use dst or src?
                 for mv in motion_vectors {
-                    let pos = na::Vector2::new(mv.dst_x as f32, mv.dst_y as f32)
+                    let pos = na::Vector2::new(mv.src_x as f32, mv.src_y as f32)
                         .component_mul(&frame_norm)
                         .into();
                     let motion = na::Vector2::new(mv.motion_x as f32, mv.motion_y as f32)
-                        .component_mul(&frame_norm);
+                        .component_div(&na::Vector2::new(
+                            mv.motion_scale as f32,
+                            mv.motion_scale as f32,
+                        ))
+                        .component_mul(&-frame_norm);
+
+                    //println!("{}", mv.motion_scale);
 
                     downscale_mf.add_vector(pos, motion);
+                    //println!("{} {} | {} {}", pos[0], pos[1], motion[0], motion[1]);
                 }
 
                 downscale_mf.interpolate_empty_cells()?;
@@ -435,20 +446,28 @@ impl<T: Read + Seek> AvDecoder<T> {
     }
 }
 
-impl<T: Read + Seek> Decoder for AvDecoder<T> {
+impl<T: Read + ?Sized> Decoder for AvDecoder<T> {
     fn process_frame(
         &mut self,
         mf: &mut MotionField,
         mut out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
+        mut skip: usize,
     ) -> Result<bool> {
         let mut packet = MaybeUninit::uninit();
         let mut reached_stream = false;
         let mut ret = false;
 
-        while !reached_stream {
+        while !reached_stream || skip > 0 {
             match unsafe { av_read_frame(self.av_ctx.fmt_ctx, packet.as_mut_ptr()) } {
                 e if e < 0 => return Err(format!("Failed to read frame ({})", e).into()),
                 _ => {
+                    if skip > 0 {
+                        skip -= 1;
+                        if skip > 20 {
+                            continue;
+                        }
+                    }
+
                     let packet = unsafe { packet.assume_init_mut() };
 
                     trace!("Read packet: {} {}", packet.stream_index, packet.size);

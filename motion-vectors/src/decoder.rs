@@ -43,6 +43,7 @@ pub trait Decoder {
         &mut self,
         field: &mut MotionField,
         out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
+        skip_frames: usize,
     ) -> Result<bool>;
 
     /// Get the framerate of the stream.

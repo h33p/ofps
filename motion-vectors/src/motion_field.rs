@@ -166,7 +166,7 @@ impl DownscaleMotionField {
                         self.add_vector_idx(
                             i,
                             (scale * inv_cnt * self.mf.vf.column(idx)).into(),
-                            scale,
+                            scale, // * 2.0,
                         );
                         added = true;
                     }

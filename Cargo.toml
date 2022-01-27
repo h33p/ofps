@@ -9,6 +9,7 @@ members = [
 	"motion-vectors",
 	"motion-visualiser",
 	"mvec-av",
+	"mvec-cv",
 	"ptrplus"
 ]
 
@@ -16,5 +17,6 @@ default-members = [
 	"motion-vectors",
 	"motion-visualiser",
 	"mvec-av",
+	#"mvec-cv",
 ]
 

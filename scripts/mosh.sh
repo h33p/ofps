@@ -8,8 +8,8 @@ RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of
 
 ffmpeg \
 	-i $MOSH_VIDEO -i $MOSH_FRAME -filter_complex \
-	"[1]crop=2560:1440:0:0,scale=1280:720,setsar=1:1[i0];[i0][0:v:0]concat=n=2:v=1[outv]" \
-	-map "[outv]" -c:v mpeg2video -bf 0 -g 999999 out0.avi
+	"[1]crop=3360:1280:0:0,scale=3360:1280,setsar=1:1[i0];[i0][0:v:0]concat=n=2:v=1[outv]" \
+	-map "[outv]" -c:v libx264 -bf 0 -g 999999 out0.avi
 
 # Just see that it would work on accelerator
 #ffmpeg \
@@ -18,6 +18,6 @@ ffmpeg \
 #	-vf "format=nv12|vaapi,hwupload" \
 #	-c:v h264_vaapi -bf 0 -g 999999 out1.avi
 
-ffmpeg -i out0.avi -c copy -t 0.04 -copyinkf out2.avi
-ffmpeg -i out0.avi -c copy -ss 0.1 -copyinkf out3.avi
+ffmpeg -i out0.avi -c copy -t 0.01 -copyinkf out2.avi
+ffmpeg -i out0.avi -c copy -ss 0.04 -copyinkf out3.avi
 cat out2.avi out3.avi > out.avi

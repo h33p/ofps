@@ -1,5 +1,6 @@
 pub mod decoder;
 pub mod motion_field;
+pub mod motion_model;
 pub mod result;
 pub mod utils;
 
@@ -8,6 +9,7 @@ pub mod prelude {
         pub use crate::{
             decoder::{Decoder, RGBA},
             motion_field::{DownscaleMotionField, MotionField},
+            motion_model::*,
             result::Result,
         };
         pub use ptrplus;

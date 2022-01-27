@@ -12,20 +12,21 @@ pub struct RenderState {
     device: Device,
     queue: Queue,
     config: SurfaceConfiguration,
-    size: winit::dpi::PhysicalSize<u32>,
+    pub size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     vertex_buffer: Option<Buffer>,
     vertex_motion_buffer: Option<Buffer>,
+    contains_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
     texture: Option<Texture>,
     num_indices: u32,
 }
 
 impl RenderState {
-    fn desc<'a, const N: u32>() -> VertexBufferLayout<'a> {
+    fn desc<'a, T, const N: u32>() -> VertexBufferLayout<'a> {
         VertexBufferLayout {
-            array_stride: std::mem::size_of::<[f32; 2]>() as BufferAddress,
+            array_stride: std::mem::size_of::<T>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &vertex_attr_array![N => Float32x2],
         }
@@ -118,7 +119,11 @@ impl RenderState {
             vertex: VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[Self::desc::<0>(), Self::desc::<1>()],
+                buffers: &[
+                    Self::desc::<[f32; 2], 0>(),
+                    Self::desc::<[f32; 2], 1>(),
+                    Self::desc::<f32, 2>(),
+                ],
             },
             fragment: Some(FragmentState {
                 module: &shader,
@@ -159,6 +164,7 @@ impl RenderState {
             render_pipeline,
             vertex_buffer: None,
             vertex_motion_buffer: None,
+            contains_buffer: None,
             index_buffer: None,
             texture: None,
             num_indices: 0,
@@ -188,6 +194,7 @@ impl RenderState {
         mfield: &MotionField,
         video_frame: &[RGBA],
         video_height: usize,
+        contains_buf: &[f32],
     ) -> std::result::Result<(), RenderError> {
         let output = self.surface.get_current_texture()?;
 
@@ -204,13 +211,21 @@ impl RenderState {
         let bufs = match (
             &mut self.vertex_buffer,
             &mut self.vertex_motion_buffer,
+            &mut self.contains_buffer,
             &mut self.index_buffer,
         ) {
-            (Some(vbuf), Some(vmbuf), Some(ibuf)) => Some((vbuf, vmbuf, ibuf)),
-            (vbuf, vmbuf, ibuf) if mfield.size() != 0 => {
+            (Some(vbuf), Some(vmbuf), Some(cbuf), Some(ibuf)) => Some((vbuf, vmbuf, cbuf, ibuf)),
+            (vbuf, vmbuf, cbuf, ibuf) if mfield.size() != 0 => {
                 let vertex_motion_buffer = self.device.create_buffer(&BufferDescriptor {
                     label: Some("Vertex Motion Buffer"),
                     size: (mfield.size() * std::mem::size_of::<[f32; 2]>()) as _,
+                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+
+                let contains_buffer = self.device.create_buffer(&BufferDescriptor {
+                    label: Some("Contains Buffer"),
+                    size: (mfield.size() * std::mem::size_of::<f32>()) as _,
                     usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
@@ -266,20 +281,24 @@ impl RenderState {
 
                 *vbuf = Some(vertex_buffer);
                 *vmbuf = Some(vertex_motion_buffer);
+                *cbuf = Some(contains_buffer);
                 *ibuf = Some(index_buffer);
 
                 Some((
                     vbuf.as_mut().unwrap(),
                     vmbuf.as_mut().unwrap(),
+                    cbuf.as_mut().unwrap(),
                     ibuf.as_mut().unwrap(),
                 ))
             }
             _ => None,
         };
 
-        if let Some((_, vmbuf, _)) = &bufs {
+        if let Some((_, vmbuf, cbuf, _)) = &bufs {
             self.queue
                 .write_buffer(vmbuf, 0, bytemuck::cast_slice(mfield.as_slice()));
+            self.queue
+                .write_buffer(cbuf, 0, bytemuck::cast_slice(contains_buf));
         }
 
         let (video_frame, video_height) = if video_frame.len() > 0 && video_height > 0 {
@@ -333,13 +352,14 @@ impl RenderState {
                 depth_stencil_attachment: None,
             });
 
-            if let Some((vbuf, vmbuf, ibuf)) = bufs {
+            if let Some((vbuf, vmbuf, cbuf, ibuf)) = bufs {
                 render_pass.set_pipeline(&self.render_pipeline);
                 if let Some(tex) = &self.texture {
                     render_pass.set_bind_group(0, &tex.bind_group, &[]);
                 }
                 render_pass.set_vertex_buffer(0, vbuf.slice(..));
                 render_pass.set_vertex_buffer(1, vmbuf.slice(..));
+                render_pass.set_vertex_buffer(2, cbuf.slice(..));
                 render_pass.set_index_buffer(ibuf.slice(..), IndexFormat::Uint32);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
