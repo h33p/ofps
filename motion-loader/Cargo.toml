@@ -1,5 +1,5 @@
 [package]
-name = "mvec-cv"
+name = "motion-loader"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,8 +7,11 @@ edition = "2021"
 
 [dependencies]
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
+mvec-av = { version = "0.1", path = "../mvec-av", optional = true }
+mvec-cv = { version = "0.1", path = "../mvec-cv", optional = true }
 nalgebra = "0.30"
-libc = "*"
-c_str_macro = "1"
-log = "0.4"
-opencv = { version = "0.62", features = ["clang-runtime"] }
+
+[features]
+default = ["mpeg"]
+mpeg = ["mvec-av"]
+cv = ["mvec-cv"]

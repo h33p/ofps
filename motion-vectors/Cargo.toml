@@ -6,6 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nalgebra = "0.29"
+nalgebra = "0.30"
 ptrplus = { version = "1", path = "../ptrplus" }
 bytemuck = { version = "1", features = [ "derive" ] }
+libmv = { path = "../libmv-rust" }

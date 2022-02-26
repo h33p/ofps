@@ -51,7 +51,7 @@ impl CvDecoder {
 impl Decoder for CvDecoder {
     fn process_frame(
         &mut self,
-        mf: &mut MotionField,
+        mf: &mut MotionVectors,
         out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
         skip: usize,
     ) -> Result<bool> {
@@ -65,7 +65,7 @@ impl Decoder for CvDecoder {
                 core::mem::swap(&mut self.old_gray, &mut self.gray);
                 imgproc::cvt_color(&self.frame, &mut self.gray_tmp, imgproc::COLOR_BGR2GRAY, 0)?;
 
-                if mf.dim() == (0, 0) {
+                let (dx, dy) = {
                     let (ax, ay) = self.get_aspect().unwrap();
                     let ratio = (
                         ax * self.aspect_ratio_scale.0,
@@ -74,16 +74,12 @@ impl Decoder for CvDecoder {
                     let (w, h) = self.max_mfield_size;
                     let width_based = (w, w * ratio.1 / ratio.0);
                     let height_based = (h * ratio.0 / ratio.1, h);
-                    println!("{:?} {:?} | {} {}", width_based, height_based, w, h);
-                    let (w, h) = if width_based.0 < height_based.0 {
+                    if width_based.0 < height_based.0 {
                         width_based
                     } else {
                         height_based
-                    };
-                    *mf = MotionField::new(w, h)
-                }
-
-                let (dx, dy) = mf.dim();
+                    }
+                };
 
                 let (dx, dy) = if dx * 4 < self.gray_tmp.cols() as usize {
                     (dx * 4, dy * 4)
@@ -99,6 +95,8 @@ impl Decoder for CvDecoder {
                     0.0,
                     imgproc::INTER_LINEAR,
                 )?;
+            } else {
+                return Err("Failed to grab frame".into());
             }
         }
 
@@ -136,8 +134,6 @@ impl Decoder for CvDecoder {
             1f32 / self.gray.rows() as f32,
         );
 
-        let mut downscale_mf = mf.new_downscale();
-
         for y in 0..self.gray.rows() {
             for x in 0..self.gray.cols() {
                 let dir: &Point2f = self.flow.at_2d(y, x)?;
@@ -149,13 +145,9 @@ impl Decoder for CvDecoder {
                 let motion =
                     na::Vector2::new(dir.x as f32, dir.y as f32).component_mul(&frame_norm);
 
-                downscale_mf.add_vector(pos, motion);
+                mf.push((pos, motion));
             }
         }
-
-        //downscale_mf.interpolate_empty_cells()?;
-
-        mf.from_downscale(&downscale_mf);
 
         Ok(true)
     }

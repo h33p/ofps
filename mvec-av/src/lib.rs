@@ -309,7 +309,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
     pub fn extract_mvs(
         &mut self,
         packet: &mut AVPacket,
-        mf: &mut MotionField,
+        mf: &mut MotionVectors,
         out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
     ) -> Result<bool> {
         match unsafe { avcodec_send_packet(self.codec_ctx, packet) } {
@@ -319,23 +319,6 @@ impl<T: Read + ?Sized> AvDecoder<T> {
 
         if let Some(frame) = RefFrame::new(&mut self.codec_ctx, &mut self.av_frame)? {
             self.aspect_ratio = (frame.width as usize, frame.height as usize);
-
-            if mf.dim() == (0, 0) {
-                let ratio = (
-                    self.aspect_ratio.0 * self.aspect_ratio_scale.0,
-                    self.aspect_ratio.1 * self.aspect_ratio_scale.1,
-                );
-                let (w, h) = self.max_mfield_size;
-                let width_based = (w, w * ratio.1 / ratio.0);
-                let height_based = (h * ratio.0 / ratio.1, h);
-                println!("{:?} {:?} | {} {}", width_based, height_based, w, h);
-                let (w, h) = if width_based.0 < height_based.0 {
-                    width_based
-                } else {
-                    height_based
-                };
-                *mf = MotionField::new(w, h)
-            }
 
             if let Some((out_frame, out_height)) = out_frame {
                 out_frame.clear();
@@ -407,8 +390,6 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                 let motion_vectors =
                     unsafe { slice::from_raw_parts(side_data.data as *const AVMotionVector, size) };
 
-                let mut downscale_mf = mf.new_downscale();
-
                 let frame_norm =
                     na::Vector2::new(1f32 / frame.width as f32, 1f32 / frame.height as f32);
 
@@ -426,13 +407,8 @@ impl<T: Read + ?Sized> AvDecoder<T> {
 
                     //println!("{}", mv.motion_scale);
 
-                    downscale_mf.add_vector(pos, motion);
-                    //println!("{} {} | {} {}", pos[0], pos[1], motion[0], motion[1]);
+                    mf.push((pos, motion));
                 }
-
-                downscale_mf.interpolate_empty_cells()?;
-
-                mf.from_downscale(&downscale_mf);
 
                 Ok(true)
             } else {
@@ -449,7 +425,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
 impl<T: Read + ?Sized> Decoder for AvDecoder<T> {
     fn process_frame(
         &mut self,
-        mf: &mut MotionField,
+        mf: &mut MotionVectors,
         mut out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
         mut skip: usize,
     ) -> Result<bool> {

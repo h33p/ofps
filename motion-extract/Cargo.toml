@@ -1,5 +1,5 @@
 [package]
-name = "mvec-cv"
+name = "motion-extract"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,8 +7,4 @@ edition = "2021"
 
 [dependencies]
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
-nalgebra = "0.30"
-libc = "*"
-c_str_macro = "1"
-log = "0.4"
-opencv = { version = "0.62", features = ["clang-runtime"] }
+motion-loader = { version = "0.1", path = "../motion-loader" }

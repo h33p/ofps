@@ -7,7 +7,7 @@ edition = "2018"
 
 [dependencies]
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
-nalgebra = "0.29"
+nalgebra = "0.30"
 ffmpeg-sys = "4.3"
 libc = "*"
 c_str_macro = "1"

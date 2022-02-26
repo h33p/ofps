@@ -8,15 +8,21 @@ resolver = "2"
 members = [
 	"motion-vectors",
 	"motion-visualiser",
+	"motion-loader",
+	"motion-extract",
 	"mvec-av",
 	"mvec-cv",
-	"ptrplus"
+	"ptrplus",
+	"libmv-rust",
 ]
 
 default-members = [
 	"motion-vectors",
 	"motion-visualiser",
+	"motion-loader",
+	"motion-extract",
 	"mvec-av",
+	"libmv-rust",
 	#"mvec-cv",
 ]
 

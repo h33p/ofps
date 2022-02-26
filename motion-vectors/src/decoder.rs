@@ -1,5 +1,6 @@
 use crate::prelude::v1::*;
 use bytemuck::{Pod, Zeroable};
+use nalgebra as na;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -30,6 +31,9 @@ impl RGBA {
     }
 }
 
+pub type MotionEntry = (na::Point2<f32>, na::Vector2<f32>);
+pub type MotionVectors = Vec<MotionEntry>;
+
 pub trait Decoder {
     /// Process a single frame in the stream.
     ///
@@ -41,7 +45,7 @@ pub trait Decoder {
     /// If the decoder supports it, `out_frame` may also be written at either of the `Ok` cases.
     fn process_frame(
         &mut self,
-        field: &mut MotionField,
+        field: &mut MotionVectors,
         out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
         skip_frames: usize,
     ) -> Result<bool>;

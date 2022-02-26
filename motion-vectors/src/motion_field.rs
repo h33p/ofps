@@ -43,6 +43,18 @@ impl MotionField {
     pub fn get_motion(&self, x: usize, y: usize) -> Vector2<f32> {
         self.vf.column(self.width * y + x).into()
     }
+
+    pub fn motion_iter(&self) -> impl Iterator<Item = (Point2<f32>, Vector2<f32>)> + '_ {
+        let (width, height) = self.dim();
+        (0..height).into_iter().flat_map(move |y| {
+            (0..width).into_iter().map(move |x| {
+                (
+                    Point2::new(x as f32 / width as f32, y as f32 / height as f32),
+                    self.get_motion(x, y),
+                )
+            })
+        })
+    }
 }
 
 pub struct DownscaleMotionField {

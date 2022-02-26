@@ -8,11 +8,11 @@ edition = "2018"
 [dependencies]
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
 terminal_size = "0.1"
-mvec-av = { version = "0.1", path = "../mvec-av", optional = true }
-mvec-cv = { version = "0.1", path = "../mvec-cv", optional = true }
+motion-loader = { version = "0.1", path = "../motion-loader" }
 env_logger = "0.9"
 log = "0.4"
-nalgebra = "0.29"
+nalgebra = "0.30"
+rand = "0.8"
 
 # wgpu dependencies
 image = "0.23"
@@ -22,5 +22,3 @@ wgpu = "0.11"
 pollster = "0.2"
 bytemuck = { version = "1.4", features = [ "derive" ] }
 
-[features]
-default = ["mvec-av"]
