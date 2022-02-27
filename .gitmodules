@@ -1,0 +1,3 @@
+[submodule "libmv"]
+	path = libmv-rust/libmv
+	url = https://github.com/h33p/libmv.git

@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=libmv-c.h");
-    println!("cargo:rustc-link-search=native=/usr/local/lib");
+    let manifest = env::var("CARGO_MANIFEST_DIR").unwrap();
+    println!("cargo:rustc-link-search=native={manifest}/libmv/bin-opt/lib/");
     println!("cargo:rustc-link-lib=multiview");
 
     let src = ["libmv-c.cpp"];
@@ -14,9 +15,19 @@ fn main() {
         println!("cargo:rerun-if-changed={}", i);
     }
 
+    println!("cargo:warning=Compiling libmv");
+
+    println!("{}", std::str::from_utf8(&std::process::Command::new("bash")
+            .arg("-c").arg("cd libmv; CC=clang CXX=clang++ make")
+            .output()
+            .expect("Failed to build kernel libmv!").stdout).unwrap());
+
     let mut builder = cc::Build::new();
 
-    let build = builder.cpp(true).files(src.iter());
+    let build = builder
+        .cpp(true)
+        .files(src.iter())
+        .include("libmv/src/");
 
     build.compile("libmv-c");
 
