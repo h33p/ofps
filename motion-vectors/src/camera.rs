@@ -9,31 +9,46 @@ pub struct StandardCamera {
 
 impl StandardCamera {
     pub fn new(fov_x: f32, fov_y: f32) -> Self {
-        let proj = na::Perspective3::new(fov_x / fov_y, fov_y.to_radians(), 0.01, 10.0);
+        let proj = na::Perspective3::new(fov_x / fov_y, fov_y.to_radians(), 0.1, 10.0);
 
         Self { fov_x, fov_y, proj }
     }
 
-    pub fn rotate(&self, coords: na::Point2<f32>, rotation: na::Matrix4<f32>) -> na::Point2<f32> {
+    pub fn unproject(&self, coords: na::Point2<f32>, view: na::Matrix4<f32>) -> na::Point3<f32> {
         // Transform the point to [-1; 1] range
         let coords = coords * 2.0 - na::Vector2::new(1.0, 1.0);
 
         // Transform the point into 3D space
-        let world = self
-            .proj
-            .unproject_point(&na::Point3::new(coords.x, coords.y, 1.0));
+        (self.proj.as_matrix() * view)
+            .try_inverse()
+            .unwrap()
+            .transform_point(&na::Point3::new(coords.x, coords.y, 1.0))
+    }
 
-        // Rotate the point as if it was on a sphere
-        let world = rotation.transform_point(&world);
+    pub fn as_matrix(&self) -> &na::Matrix4<f32> {
+        self.proj.as_matrix()
+    }
 
+    pub fn project(&self, world: na::Point3<f32>, view: na::Matrix4<f32>) -> na::Point2<f32> {
         // Transform the point back into 2D
-        let screen = self.proj.project_point(&world);
+        let mut screen = (self.proj.as_matrix() * view).transform_point(&world);
 
         // Convert back from homogeneus coordinates
         let screen = na::Point2::new(screen.x / screen.z, screen.y / screen.z);
 
         // Transform the point back to [0; 1] range
         (screen + na::Vector2::new(1.0, 1.0)) * 0.5
+    }
+
+    pub fn rotate(&self, coords: na::Point2<f32>, rotation: na::Matrix4<f32>) -> na::Point2<f32> {
+        let view = na::Matrix4::identity();
+
+        let world = self.unproject(coords, view);
+
+        // Rotate the point as if it was on a sphere
+        let world = rotation.transform_point(&world);
+
+        self.project(world, view)
     }
 
     pub fn delta(&self, coords: na::Point2<f32>, rotation: na::Matrix4<f32>) -> na::Vector2<f32> {
@@ -92,31 +107,5 @@ impl StandardCamera {
                 (-u.column(2)).into(),
             ],
         ))
-    }
-
-    pub fn reconstruct_multiview(
-        &self,
-        points: &[MotionEntry],
-    ) -> Option<(na::geometry::Rotation3<f32>, na::Vector3<f32>)> {
-        let (err, f, inliers) = crate::reconstruct::fundamental(points, 0.7)?;
-        let e = self.essential(f);
-
-        // TODO: reimplement in pure Rust
-        let e = na::Matrix3::from_iterator(e.into_iter().map(|v| *v as _));
-        let k = na::Matrix3::from_iterator(self.intrinsics().into_iter().map(|v| *v as _));
-        let point = points[inliers[0]];
-        let x1 = na::Point2::new(point.0.x as _, point.0.y as _);
-        let x2 = x1 + na::Vector2::new(point.1.x as _, point.1.y as _);
-
-        let (r, t) = libmv::multiview::fundamental::motion_from_essential_and_correspondence(
-            e, k, x1, k, x2,
-        )?;
-
-        println!("({}) | {:?} | {:?}", e, r, t);
-
-        let r = na::Matrix3::from_iterator(r.into_iter().map(|v| *v as _));
-        let t = na::Vector3::from_iterator(t.into_iter().map(|v| *v as _));
-
-        Some((na::geometry::Rotation3::from_matrix(&r), t))
     }
 }

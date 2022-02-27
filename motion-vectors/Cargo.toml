@@ -10,3 +10,4 @@ nalgebra = "0.30"
 ptrplus = { version = "1", path = "../ptrplus" }
 bytemuck = { version = "1", features = [ "derive" ] }
 libmv = { path = "../libmv-rust" }
+rand = "0.8"

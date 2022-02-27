@@ -1,7 +1,6 @@
 use log::*;
 use motion_vectors::prelude::v1::*;
 use nalgebra as na;
-use rand::seq::SliceRandom;
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -15,147 +14,55 @@ mod texture;
 
 use renderer::{RenderError, RenderState};
 
-fn reset_grid(grid: &mut Vec<na::Point2<f32>>) {
+fn reset_grid(
+    grid: &mut Vec<na::Point3<f32>>,
+    camera: &StandardCamera,
+    rotation: na::UnitQuaternion<f32>,
+    origin: na::Point3<f32>,
+) {
     grid.clear();
-    fill_grid(grid);
+    fill_grid(grid, camera, rotation, origin);
 }
 
-fn fill_grid(grid: &mut Vec<na::Point2<f32>>) {
+fn calc_view(rot: na::UnitQuaternion<f32>, pos: na::Point3<f32>) -> na::Matrix4<f32> {
+    na::Matrix4::look_at_rh(
+        &pos,
+        &(pos + rot.transform_vector(&na::Vector3::new(0.0, 1.0, 0.0))),
+        &rot.transform_vector(&na::Vector3::new(0.0, 0.0, 1.0)),
+    )
+}
+
+fn fill_grid(
+    grid: &mut Vec<na::Point3<f32>>,
+    camera: &StandardCamera,
+    rotation: na::UnitQuaternion<f32>,
+    origin: na::Point3<f32>,
+) {
     let grid_cnt_x = 30;
     let grid_cnt_y = 30;
+
+    let mut new_points = vec![];
 
     for x in 1..grid_cnt_x {
         for y in 1..grid_cnt_y {
             let x = x as f32 / grid_cnt_x as f32;
             let y = y as f32 / grid_cnt_y as f32;
-            grid.push(na::Point2::new(x, y));
-        }
-    }
-}
-
-fn solve_ypr_given(motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])]) -> na::Vector3<f32> {
-    let dot = |a: usize, b: usize| move |vecs: &[na::Vector2<f32>]| vecs[a].dot(&vecs[b]);
-
-    fn dot_map<T: Fn(&[na::Vector2<f32>]) -> f32>(
-        motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])],
-    ) -> (impl Fn(T) -> f32 + '_) {
-        move |dot| motion.iter().map(|(_, v)| dot(v)).sum::<f32>()
-    }
-
-    let a = na::Matrix3::from_iterator(
-        [
-            dot(1, 1),
-            dot(1, 2),
-            dot(1, 3),
-            dot(2, 1),
-            dot(2, 2),
-            dot(2, 3),
-            dot(3, 1),
-            dot(3, 2),
-            dot(3, 3),
-        ]
-        .iter()
-        .map(dot_map(&motion)),
-    );
-
-    let b = na::Matrix3x1::from_iterator(
-        [dot(1, 0), dot(2, 0), dot(3, 0)]
-            .iter()
-            .map(dot_map(&motion)),
-    );
-
-    let decomp = a.lu();
-
-    decomp.solve(&b).unwrap_or_default()
-}
-
-fn solve_ypr(field: &MotionVectors, camera: &impl MotionModel) -> na::Vector3<f32> {
-    let motion = field
-        .iter()
-        .copied()
-        .map(|(pos, motion)| {
-            (
-                pos,
-                [motion, camera.yaw(pos), camera.pitch(pos), camera.roll(pos)],
-            )
-        })
-        .collect::<Vec<_>>();
-
-    solve_ypr_given(&motion)
-}
-
-fn solve_ypr_ransac(field: &MotionVectors, camera: &impl MotionModel) -> na::Vector3<f32> {
-    let motion = field
-        .iter()
-        .copied()
-        .map(|(pos, motion)| {
-            (
-                pos,
-                [motion, camera.yaw(pos), camera.pitch(pos), camera.roll(pos)],
-            )
-        })
-        .collect::<Vec<_>>();
-
-    let mut best_fit = Default::default();
-    let mut max_inliers = 0;
-    let target_delta = 0.0001;
-
-    let rng = &mut rand::thread_rng();
-
-    // Even with 60% of outliers this would not reach this limit...
-    for _ in 0..100 {
-        /*if max_inliers as f32 / motion.len() as f32 > 0.6 {
-            break;
-        }*/
-
-        let samples = motion.choose_multiple(rng, 4).copied().collect::<Vec<_>>();
-
-        let fit = solve_ypr_given(samples.as_slice());
-
-        let motion = motion
-            .choose_multiple(rng, 400)
-            .copied()
-            .collect::<Vec<_>>();
-
-        let inliers = motion
-            .iter()
-            .map(|(pos, vec)| (sample_ypr_model(fit, *pos, camera), vec[0], pos, vec))
-            .filter(|(sample, actual, pos, vec)| {
-                // Sum the (error / target_delta).min(1.0)
-
-                if actual.magnitude() == 0.0 {
-                    true
-                } else {
-                    /*let c = -*sample;
-                    let d = *actual - *sample;
-
-                    let t = (c.dot(&d) / d.dot(&d)).abs();
-
-                    //println!("{}", t);
-
-                    t <= target_delta*/
-                    (*actual - *sample).magnitude()/* / actual.magnitude()*/ <= target_delta
-                }
-            })
-            .map(|(a, b, pos, vec)| (*pos, *vec))
-            .collect::<Vec<_>>();
-
-        if inliers.len() > max_inliers {
-            best_fit = solve_ypr_given(inliers.as_slice());
-            max_inliers = inliers.len();
-            println!("{} | {}", max_inliers, best_fit);
+            new_points.push(na::Point2::new(x, y));
+            /*let x = x * 2.0 - 1.0;
+            let y = y * 2.0 - 1.0;
+            let p = na::Vector3::new(x, 3.0, y);
+            grid.push(origin + rotation * p);*/
         }
     }
 
-    best_fit
-}
+    let view = calc_view(rotation, origin);
 
-fn sample_ypr_model(
-    model: na::Vector3<f32>,
-    pos: na::Point2<f32>,
-    camera: &impl MotionModel,
-) -> na::Vector2<f32> {
-    camera.yaw(pos) * model.x + camera.pitch(pos) * model.y + camera.roll(pos) * model.z
+    grid.extend(
+        new_points
+            .into_iter()
+            .inspect(|p| println!("{:?} | {:?}", p, camera.unproject(*p, view)))
+            .map(|p| camera.unproject(p, view)),
+    )
 }
 
 fn main() -> Result<()> {
@@ -202,8 +109,6 @@ fn main() -> Result<()> {
     let mut rgba_width = 0;
     let mut tracked_objs = vec![];
 
-    reset_grid(&mut tracked_objs);
-
     let mut contains_buf = vec![];
 
     let mut mouse_pos = None;
@@ -211,6 +116,14 @@ fn main() -> Result<()> {
     let fov = 39.6;
 
     let camera = StandardCamera::new(fov, fov * 9.0 / 16.0);
+
+    let mut rot: na::UnitQuaternion<f32> = Default::default();
+    let mut pos: na::Point3<f32> = Default::default();
+
+    reset_grid(&mut tracked_objs, &camera, rot, pos);
+
+    let mut estimator = reconstruct::MultiviewEstimator::default();
+    //let mut estimator = AlmeidaEstimator::default();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
@@ -240,6 +153,21 @@ fn main() -> Result<()> {
                         return;
                     }
 
+                    if let Err(e) =
+                        estimator.motion_step(&motion_vectors, &camera, &mut rot, &mut pos)
+                    {
+                        println!("Failed to estimate motion: {}", e);
+                        continue;
+                    }
+
+                    //rot = Default::default();
+                    //pos = Default::default();
+
+                    //pos.x -= 0.1;
+                    //rot *= na::UnitQuaternion::from_euler_angles(0.0, 0.01, 0.0);
+
+                    println!("{:?} | {:?}", rot, pos);
+
                     let mut downscale_mf = mf.new_downscale();
 
                     for &(pos, motion) in &motion_vectors {
@@ -255,60 +183,31 @@ fn main() -> Result<()> {
                     contains_buf.clear();
                     contains_buf.resize(mf.size(), 0.0);
 
-                    let motion_estimate =
-                        if let Some((r, t)) = camera.reconstruct_multiview(&motion_vectors) {
-                            const EPS: f32 = 0.01745329f32;
-                            let (r, p, y) = r.euler_angles();
-                            na::Vector3::new(-p / EPS, -r / EPS, y / EPS)
-                        } else {
-                            solve_ypr(&motion_vectors, &camera)
-                        };
-                    //let mat = reconstruct::fundamental(&motion_vectors, 0.5);
-                    //println!("{:?}", mat);
-
-                    /*println!(
-                        "{:.02} {:.02} {:.02}",
-                        motion_estimate.x, motion_estimate.y, motion_estimate.z
-                    );*/
-
                     let (w, h) = mf.dim();
                     if w > 0 && h > 0 {
                         if cnt < 0 {
-                            fill_grid(&mut tracked_objs);
+                            fill_grid(&mut tracked_objs, &camera, rot, pos);
                         }
 
+                        let view = calc_view(rot, pos);
+
+                        println!("{:?}", view);
+
                         for (i, in_pos) in tracked_objs.iter_mut().enumerate() {
+                            //let in_pos = camera.project(*in_pos, view);
+                            let in_pos = camera.project(*in_pos, view);
+
                             let pos = na::clamp(
-                                *in_pos,
+                                in_pos,
                                 na::Point2::new(0f32, 0f32),
                                 na::Point2::new(1f32, 1f32),
                             );
+
                             let (x, y) = (
                                 (pos.x * (w - 1) as f32).round() as usize,
                                 (pos.y * (h - 1) as f32).round() as usize,
                             );
-                            let motion = mf.get_motion(x, y);
-                            //if motion.magnitude() > 0.1 {
-                            //println!("{}: ({}; {})", i, x, y);
                             contains_buf[x + y * w] += 1.0;
-                            //}
-
-                            let motion = if cnt < 0 {
-                                camera.yaw(*in_pos)
-                            } else {
-                                sample_ypr_model(motion_estimate, *in_pos, &camera)
-                                //motion
-                            };
-
-                            *in_pos += motion;
-
-                            /*in_pos.x = in_pos.x % 1.0;
-
-                            if in_pos.x < 0.0 {
-                                in_pos.x += 1.0;
-                            }*/
-
-                            //*in_pos += motion;
                         }
                     }
 
@@ -366,7 +265,11 @@ fn main() -> Result<()> {
                         ..
                     },
                 ..
-            } => reset_grid(&mut tracked_objs),
+            } => {
+                rot = Default::default();
+                pos = Default::default();
+                //reset_grid(&mut tracked_objs, &camera, rot, pos),
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 mouse_pos = Some(na::Point2::new(
                     position.x as f32 / state.size.width as f32,
@@ -378,8 +281,8 @@ fn main() -> Result<()> {
                 button: MouseButton::Left,
                 ..
             } => {
-                if let Some(pos) = mouse_pos {
-                    tracked_objs.push(pos);
+                if let Some(npos) = mouse_pos {
+                    tracked_objs.push(camera.unproject(npos, calc_view(rot, pos)));
                 }
             }
             WindowEvent::Resized(physical_size) => {

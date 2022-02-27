@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod decoder;
+pub mod estimator;
 pub mod motion_field;
 pub mod motion_model;
 pub mod reconstruct;
@@ -11,6 +12,7 @@ pub mod prelude {
         pub use crate::{
             camera::*,
             decoder::{Decoder, MotionEntry, MotionVectors, RGBA},
+            estimator::Estimator,
             motion_field::{DownscaleMotionField, MotionField},
             motion_model::*,
             reconstruct,
