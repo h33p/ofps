@@ -15,7 +15,7 @@ pub mod prelude {
             estimator::Estimator,
             motion_field::{DownscaleMotionField, MotionField},
             motion_model::*,
-            reconstruct,
+            reconstruct::{self, MultiviewEstimator},
             result::Result,
         };
         pub use ptrplus;

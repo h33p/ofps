@@ -17,17 +17,26 @@ fn main() {
 
     println!("cargo:warning=Compiling libmv");
 
-    println!("{}", std::str::from_utf8(&std::process::Command::new("bash")
-            .arg("-c").arg("cd libmv; CC=clang CXX=clang++ make")
-            .output()
-            .expect("Failed to build kernel libmv!").stdout).unwrap());
+    println!(
+        "{}",
+        std::str::from_utf8(
+            &std::process::Command::new("bash")
+                .arg("-c")
+                .arg("cd libmv; CC=clang CXX=clang++ make")
+                .output()
+                .expect("Failed to build kernel libmv!")
+                .stdout
+        )
+        .unwrap()
+    );
 
     let mut builder = cc::Build::new();
 
     let build = builder
         .cpp(true)
         .files(src.iter())
-        .include("libmv/src/");
+        .include("libmv/src/")
+        .include("libmv/src/third_party/eigen");
 
     build.compile("libmv-c");
 

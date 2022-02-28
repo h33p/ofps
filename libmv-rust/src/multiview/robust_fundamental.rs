@@ -33,8 +33,6 @@ pub fn from_correspondences_8_point(
         )
     };
 
-    println!("E: {}", error);
-
     if error > 10000000.0 {
         None
     } else {

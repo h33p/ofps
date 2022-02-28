@@ -33,8 +33,6 @@ extern "C" double fundamental_from_correspondences_8_point_robust(const double* 
         *inliers_sz = inliers_vec.size();
     }
 
-    printf("Hello: %zu | %zu\n", *inliers_sz, x_rows);
-
     return ret;
 }
 

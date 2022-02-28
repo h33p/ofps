@@ -9,3 +9,4 @@ edition = "2021"
 motion-vectors = { version = "0.1", path = "../motion-vectors" }
 motion-loader = { version = "0.1", path = "../motion-loader" }
 nalgebra = "0.30"
+rayon = "1"
