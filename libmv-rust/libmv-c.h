@@ -14,6 +14,15 @@ extern "C" {
             size_t* inliers_sz,
             double outliers_probability);
 
+    double fundamental_from_correspondences_7_point_robust(const double* x1,
+            const double* x2,
+            size_t x_rows,
+            double max_error,
+            double* F,
+            int* inliers,
+            size_t* inliers_sz,
+            double outliers_probability);
+
     int motion_from_essential_and_correspondence(
             const double *E,
             const double *K1,

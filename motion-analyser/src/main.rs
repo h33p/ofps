@@ -10,6 +10,12 @@ fn create_states() -> Vec<AnalysisState> {
     vec![
         AlmeidaEstimator::default().into(),
         MultiviewEstimator::default().into(),
+        MultiviewEstimator {
+            outlier_proba: 0.7,
+            max_error: 0.0001,
+            algo_points: 8,
+        }
+        .into(),
     ]
 }
 
@@ -31,6 +37,7 @@ fn main() -> Result<()> {
 
     let mut ground_truth = EstimatorState::from(AlmeidaEstimator::default());
     let mut states = create_states();
+    states[0].state.scale = 0.5;
 
     // Gather the data and perform initial analysis
     while let Ok(got_vecs) = {
@@ -67,6 +74,8 @@ struct AnalysisState {
     deltas: Vec<AbsoluteDeltas>,
     pos_delta: Vec<na::Vector3<f32>>,
     tr_delta: Vec<na::Vector3<f32>>,
+    cos_similarity: Vec<f32>,
+    cos_pos_similarity: Vec<f32>,
     max_tr: f32,
     max_tr_ground_truth: f32,
 }
@@ -78,6 +87,8 @@ impl<T: Into<EstimatorState>> From<T> for AnalysisState {
             deltas: vec![],
             pos_delta: vec![],
             tr_delta: vec![],
+            cos_similarity: vec![],
+            cos_pos_similarity: vec![],
             max_tr: 0.0,
             max_tr_ground_truth: 0.0,
         }
@@ -120,6 +131,50 @@ impl AnalysisState {
         };
 
         self.deltas.push(deltas);
+
+        let srv = self_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+        let s = na::Vector6::from_iterator(
+            srv.iter()
+                .copied()
+                .chain(self_state.prev_tr.iter().copied()),
+        );
+        let trv = ground_truth_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+        let t = na::Vector6::from_iterator(
+            trv.iter()
+                .copied()
+                .chain(ground_truth_state.prev_tr.iter().copied()),
+        );
+
+        let st = s.dot(&t);
+        let inv = (s.dot(&s) * t.dot(&t)).sqrt();
+        let cosang = if inv != 0.0 {
+            st / inv
+        } else if st == 0.0 {
+            1.0
+        } else {
+            0.0
+        };
+
+        println!("CA: {}", cosang);
+
+        self.cos_similarity.push(cosang);
+
+        let s = self_state.prev_tr;
+        let t = ground_truth_state.prev_tr;
+
+        let st = s.dot(&t);
+        let inv = (s.dot(&s) * t.dot(&t)).sqrt();
+        let cosang = if inv != 0.0 {
+            st / inv
+        } else if s == t {
+            1.0
+        } else {
+            0.0
+        };
+
+        println!("CA: {}", cosang);
+
+        self.cos_pos_similarity.push(cosang);
     }
 
     fn finalise(&mut self, ground_truth: &EstimatorState) {
@@ -147,6 +202,166 @@ impl AnalysisState {
             pos_self.push(self_state.pos * inv_max_tr);
             pos_ground_truth.push(ground_truth_state.pos * inv_max_tr_ground_truth);
         }
+
+        // Calculate Mean Squared Error for rotation and position deltas.
+        let mut mse: na::VectorN<f32, na::U11> = Default::default();
+
+        for (deltas, ((tr_self, tr_ground_truth), (pos_self, pos_ground_truth))) in
+            self.deltas.iter().zip(
+                tr_self
+                    .iter()
+                    .zip(tr_ground_truth.iter())
+                    .zip(pos_self.iter().zip(pos_ground_truth.iter())),
+            )
+        {
+            let dtr = tr_ground_truth - tr_self;
+            let dpos = pos_ground_truth - pos_self;
+            let elem = na::VectorN::<f32, na::U11>::from_iterator([
+                deltas.cumulative_q,
+                deltas.q,
+                deltas.r,
+                deltas.p,
+                deltas.y,
+                dtr.x,
+                dtr.y,
+                dtr.z,
+                dpos.x,
+                dpos.y,
+                dpos.z,
+            ]);
+            mse += elem.component_mul(&elem);
+        }
+
+        println!("{:?}", self.deltas.last());
+
+        mse = na::VectorN::<f32, na::U11>::from_iterator(mse.iter().map(|v| v.sqrt()))
+            .scale(1.0 / self.deltas.len() as f32);
+
+        println!("MSE: {:?}", mse);
+
+        // Calculate rotation correlation
+
+        assert_eq!(self.state.states.len(), ground_truth.states.len());
+
+        let mut means_s = vec![];
+        let mut means_t = vec![];
+
+        let mut mean_s = na::Vector3::default();
+        let mut mean_t = na::Vector3::default();
+
+        for (i, (self_state, truth_state)) in self
+            .state
+            .states
+            .iter()
+            .zip(ground_truth.states.iter())
+            .enumerate()
+        {
+            let s = self_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+            let t = truth_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+            mean_s += s;
+            mean_t += t;
+            means_s.push(mean_s.scale(1.0 / (i + 1) as f32));
+            means_t.push(mean_t.scale(1.0 / (i + 1) as f32));
+        }
+
+        let mut nom = 0.0;
+        let mut sqr_denom_s = na::Vector3::default();
+        let mut sqr_denom_t = na::Vector3::default();
+
+        fn similarity_measure_base(pred: f32, truth: f32) -> f32 {
+            use std::f32::consts::{FRAC_PI_2, PI};
+            let sgn = truth.signum();
+            if pred < truth.abs() {
+                sgn * (FRAC_PI_2 * pred / truth.abs()).sin()
+            } else if pred < PI - truth.abs() {
+                sgn * (FRAC_PI_2 - FRAC_PI_2 * (pred - truth.abs()) / (FRAC_PI_2 - truth.abs()))
+            } else {
+                sgn * (-FRAC_PI_2 + FRAC_PI_2 * (pred - PI + truth.abs()) / truth.abs())
+            }
+        }
+
+        fn similarity_measure(pred: f32, truth: f32, tolerance: f32) -> f32 {
+            use std::f32::consts::PI;
+            if (pred - truth).abs() <= tolerance {
+                1.0
+            } else {
+                similarity_measure_base((pred + PI) % PI, truth)
+                    .max(similarity_measure_base((pred - tolerance + PI) % PI, truth))
+                    .max(similarity_measure_base((pred + tolerance) % PI, truth))
+            }
+        }
+
+        let mut rot_similarity = na::Vector3::default();
+
+        for (i, (self_state, truth_state)) in self
+            .state
+            .states
+            .iter()
+            .zip(ground_truth.states.iter())
+            .enumerate()
+        {
+            let (r1, p1, y1) = self_state.prev_r.euler_angles();
+            let (r2, p2, y2) = truth_state.prev_r.euler_angles();
+            rot_similarity += na::matrix![
+                similarity_measure(r1, r2, 0.001);
+                similarity_measure(p1, p2, 0.001);
+                similarity_measure(y1, y2, 0.001)
+            ];
+        }
+
+        println!(
+            "ROT SIM {:?}",
+            rot_similarity.scale(1.0 / (self.state.states.len() as f32))
+        );
+
+        for ((self_state, truth_state), (mean_s, mean_t)) in self
+            .state
+            .states
+            .iter()
+            .zip(ground_truth.states.iter())
+            .zip(means_s.iter().copied().zip(means_t.iter().copied()))
+        {
+            let mean_s = means_s.last().unwrap();
+            let mean_t = means_t.last().unwrap();
+            let s = self_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+            let t = truth_state.prev_r * na::matrix![1.0; 0.0; 0.0];
+            //let s = s - mean_s;
+            //let t = t - mean_t;
+            nom += s.dot(&t);
+            // ZNCC defined by Almeida does (F-\bar{F})^2 * (F-\bar{G})^2, but that seems wrong.
+            sqr_denom_s += s.component_mul(&s);
+            sqr_denom_t += t.component_mul(&t);
+        }
+
+        let denom = sqr_denom_s.dot(&sqr_denom_t).sqrt();
+
+        //let denom = na::Vector3::from_iterator(sqr_denom.iter().map(|v| v.sqrt()));
+
+        let correlation = nom / denom;
+
+        println!("Rotation: {:?}", correlation);
+
+        let s2 = self
+            .cos_similarity
+            .iter()
+            .map(|v| (1.0 - *v))
+            .map(|v| v * v)
+            .sum::<f32>()
+            .sqrt();
+
+        println!(
+            "ROT2: {s2} | {} {}",
+            s2 / (self.cos_similarity.len() as f32),
+            self.cos_similarity.iter().copied().fold(1.0, f32::min)
+        );
+
+        let s2 = self.cos_pos_similarity.iter().sum::<f32>();
+
+        println!(
+            "ROT2: {s2} | {} {}",
+            s2 / (self.cos_pos_similarity.len() as f32),
+            self.cos_pos_similarity.iter().copied().fold(1.0, f32::min)
+        );
     }
 
     fn metric(&self) -> f32 {
@@ -157,6 +372,7 @@ impl AnalysisState {
 struct EstimatorState {
     estimator: Box<dyn Estimator + Send + Sync>,
     states: Vec<MotionState>,
+    scale: f32,
 }
 
 impl<T: Estimator + Send + Sync + 'static> From<T> for EstimatorState {
@@ -164,16 +380,20 @@ impl<T: Estimator + Send + Sync + 'static> From<T> for EstimatorState {
         Self {
             estimator: Box::new(estimator),
             states: vec![],
+            scale: 1.0,
         }
     }
 }
 
 impl EstimatorState {
     fn on_frame(&mut self, motion_vectors: &[MotionEntry], camera: &StandardCamera) {
-        let motion = self
+        let mut motion = self
             .estimator
             .estimate(motion_vectors, camera)
             .unwrap_or_default();
+
+        motion.0 = na::UnitQuaternion::identity().nlerp(&motion.0, self.scale);
+        motion.1 *= self.scale;
         let new_state = if let Some(old_state) = self.states.last() {
             (motion, old_state).into()
         } else {
@@ -192,6 +412,7 @@ struct MotionState {
 
 impl From<((na::UnitQuaternion<f32>, na::Vector3<f32>), &Self)> for MotionState {
     fn from(((r, tr), prev): ((na::UnitQuaternion<f32>, na::Vector3<f32>), &Self)) -> Self {
+        println!("{:?}", prev.rot.euler_angles());
         Self {
             prev_r: r,
             prev_tr: tr,

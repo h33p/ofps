@@ -36,6 +36,36 @@ extern "C" double fundamental_from_correspondences_8_point_robust(const double* 
     return ret;
 }
 
+extern "C" double fundamental_from_correspondences_7_point_robust(const double* x1,
+    const double* x2,
+    size_t x_rows,
+    double max_error,
+    double* F,
+    int* inliers,
+    size_t* inliers_sz,
+    double outliers_probability)
+{
+    Map<const Mat> xm1(x1, 2, x_rows), xm2(x2, 2, x_rows);
+    Mat3 Fm;
+
+    vector<int> inliers_vec;
+
+    double ret = FundamentalFromCorrespondences7PointRobust(xm1, xm2, max_error, &Fm, &inliers_vec, outliers_probability);
+
+    for (size_t y = 0; y < 3; y++) {
+        for (size_t x = 0; x < 3; x++) {
+            F[y * 3 + x] = Fm(y, x);
+        }
+    }
+
+    if (inliers) {
+        memcpy(inliers, inliers_vec.data(), inliers_vec.size());
+        *inliers_sz = inliers_vec.size();
+    }
+
+    return ret;
+}
+
 extern "C" int motion_from_essential_and_correspondence(
     const double *E,
     const double *K1,

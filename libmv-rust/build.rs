@@ -15,7 +15,7 @@ fn main() {
         println!("cargo:rerun-if-changed={}", i);
     }
 
-    println!("cargo:warning=Compiling libmv");
+    /*println!("cargo:warning=Compiling libmv");
 
     println!(
         "{}",
@@ -28,7 +28,7 @@ fn main() {
                 .stdout
         )
         .unwrap()
-    );
+    );*/
 
     let mut builder = cc::Build::new();
 

@@ -6,8 +6,14 @@ pub fn fundamental(
     entries: &[MotionEntry],
     outlier_proba: f64,
     max_error: f64,
+    algo_points: usize,
 ) -> Option<(f64, na::Matrix3<f32>, Vec<usize>)> {
-    libmv::multiview::robust_fundamental::from_correspondences_8_point(
+    let func = match algo_points {
+        7 => libmv::multiview::robust_fundamental::from_correspondences_7_point,
+        8 => libmv::multiview::robust_fundamental::from_correspondences_8_point,
+        _ => return None,
+    };
+    func(
         entries
             .iter()
             .copied()
@@ -32,8 +38,9 @@ pub fn fundamental(
 
 /// Libmv based camera estimator.
 pub struct MultiviewEstimator {
-    outlier_proba: f64,
-    max_error: f64,
+    pub outlier_proba: f64,
+    pub max_error: f64,
+    pub algo_points: usize,
 }
 
 impl Default for MultiviewEstimator {
@@ -41,6 +48,7 @@ impl Default for MultiviewEstimator {
         Self {
             outlier_proba: 0.7,
             max_error: 0.0001,
+            algo_points: 7,
         }
     }
 }
@@ -51,8 +59,13 @@ impl Estimator for MultiviewEstimator {
         motion_vectors: &[MotionEntry],
         camera: &StandardCamera,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
-        let (err, f, inliers) = fundamental(motion_vectors, self.outlier_proba, self.max_error)
-            .ok_or("failed to compute fundamental matrix")?;
+        let (err, f, inliers) = fundamental(
+            motion_vectors,
+            self.outlier_proba,
+            self.max_error,
+            self.algo_points,
+        )
+        .ok_or("failed to compute fundamental matrix")?;
         let e = camera.essential(f);
 
         // TODO: reimplement in pure Rust
