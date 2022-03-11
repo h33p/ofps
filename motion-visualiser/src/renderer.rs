@@ -1,6 +1,6 @@
 use crate::texture::Texture;
 use log::*;
-use motion_vectors::prelude::v1::*;
+use ofps::prelude::v1::{Error, *};
 use wgpu::util::DeviceExt;
 use wgpu::*;
 use winit::{event::*, window::Window};
@@ -47,7 +47,7 @@ impl RenderState {
                 force_fallback_adapter: false,
             })
             .await
-            .ok_or("Failed to get adapter")?;
+            .ok_or_else(|| anyhow!("Failed to get adapter"))?;
 
         let (device, queue) = adapter
             .request_device(
@@ -64,7 +64,7 @@ impl RenderState {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface
                 .get_preferred_format(&adapter)
-                .ok_or("Failed to get preferred format")?,
+                .ok_or_else(|| anyhow!("Failed to get preferred format"))?,
             width: size.width,
             height: size.height,
             present_mode: PresentMode::Fifo,
@@ -375,7 +375,7 @@ impl RenderState {
 
 pub enum RenderError {
     Surface(SurfaceError),
-    Other(Box<dyn std::error::Error>),
+    Other(Error),
 }
 
 impl From<SurfaceError> for RenderError {
@@ -384,8 +384,8 @@ impl From<SurfaceError> for RenderError {
     }
 }
 
-impl From<Box<dyn std::error::Error>> for RenderError {
-    fn from(err: Box<dyn std::error::Error>) -> Self {
+impl From<Error> for RenderError {
+    fn from(err: Error) -> Self {
         Self::Other(err)
     }
 }

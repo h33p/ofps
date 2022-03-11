@@ -1,14 +1,11 @@
 [package]
-name = "mvec-av"
+name = "flow-extract"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 ofps = { version = "0.1", path = "../ofps" }
-nalgebra = "0.30"
-ffmpeg-sys = "4.3"
-libc = "*"
-c_str_macro = "1"
-log = "0.4"
+motion-loader = { version = "0.1", path = "../motion-loader" }
+opencv = { version = "0.62", features = ["clang-runtime"] }

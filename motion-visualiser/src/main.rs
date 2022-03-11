@@ -1,6 +1,9 @@
+use almeida_estimator::*;
+use libmv_estimator::*;
 use log::*;
-use motion_vectors::prelude::v1::*;
+use multiview_estimator::*;
 use nalgebra as na;
+use ofps::prelude::v1::*;
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -68,7 +71,7 @@ fn fill_grid(
 fn main() -> Result<()> {
     let input = std::env::args()
         .nth(1)
-        .ok_or("Please supply a video file!")?;
+        .ok_or_else(|| anyhow!("Please supply a video file!"))?;
 
     let seek = std::env::args()
         .nth(2)
@@ -122,7 +125,8 @@ fn main() -> Result<()> {
 
     reset_grid(&mut tracked_objs, &camera, rot, pos);
 
-    let mut estimator = reconstruct::MultiviewEstimator::default();
+    let mut estimator = MultiviewEstimator::default();
+    //let mut estimator = LibmvEstimator::default();
     //let mut estimator = AlmeidaEstimator::default();
 
     event_loop.run(move |event, _, control_flow| match event {
@@ -153,9 +157,13 @@ fn main() -> Result<()> {
                         return;
                     }
 
-                    if let Err(e) =
-                        estimator.motion_step(&motion_vectors, &camera, &mut rot, &mut pos)
-                    {
+                    if let Err(e) = estimator.motion_step(
+                        &motion_vectors,
+                        &camera,
+                        Some(0.1),
+                        &mut rot,
+                        &mut pos,
+                    ) {
                         println!("Failed to estimate motion: {}", e);
                         continue;
                     }
@@ -168,13 +176,13 @@ fn main() -> Result<()> {
 
                     println!("{:?} | {:?}", rot, pos);
 
-                    let mut downscale_mf = mf.new_downscale();
+                    let mut densify_mf = mf.new_densifier();
 
                     for &(pos, motion) in &motion_vectors {
-                        downscale_mf.add_vector(pos, motion);
+                        densify_mf.add_vector(pos, motion);
                     }
 
-                    if downscale_mf.interpolate_empty_cells().is_err() {
+                    if densify_mf.interpolate_empty_cells().is_err() {
                         continue;
                     }
 

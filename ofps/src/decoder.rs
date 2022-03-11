@@ -1,7 +1,10 @@
+//! # Motion field decoding
+
 use crate::prelude::v1::*;
 use bytemuck::{Pod, Zeroable};
 use nalgebra as na;
 
+/// RGBA colour structure.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct RGBA {
@@ -12,6 +15,7 @@ pub struct RGBA {
 }
 
 impl RGBA {
+    /// Convert from a slice containing `[r, g, b]` elements.
     pub fn from_rgb_slice(rgb: &[u8]) -> Self {
         Self {
             r: rgb[0],
@@ -21,6 +25,7 @@ impl RGBA {
         }
     }
 
+    /// Convert from a slice containing [r, g, b, a] elements.
     pub fn from_rgba_slice(rgba: &[u8]) -> Self {
         Self {
             r: rgba[0],
@@ -31,9 +36,12 @@ impl RGBA {
     }
 }
 
+/// Pair containing coordinates and motion at them.
 pub type MotionEntry = (na::Point2<f32>, na::Vector2<f32>);
+/// Vector of `MotionEntry` elements.
 pub type MotionVectors = Vec<MotionEntry>;
 
+/// Optical flow decoder.
 pub trait Decoder {
     /// Process a single frame in the stream.
     ///

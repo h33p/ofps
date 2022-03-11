@@ -1,7 +1,9 @@
 //! Analyse accuracy of motion predictions
 
-use motion_vectors::prelude::v1::*;
+use almeida_estimator::*;
+use libmv_estimator::*;
 use nalgebra as na;
+use ofps::prelude::v1::*;
 use rayon::prelude::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -9,20 +11,19 @@ use std::io::{BufWriter, Write};
 fn create_states() -> Vec<AnalysisState> {
     vec![
         AlmeidaEstimator::default().into(),
-        MultiviewEstimator::default().into(),
-        MultiviewEstimator {
-            outlier_proba: 0.7,
-            max_error: 0.0001,
-            algo_points: 8,
-        }
-        .into(),
+        LibmvEstimator::default().into(),
+        LibmvEstimator::default()
+            .outlier_proba(0.7)
+            .max_error(0.0001)
+            .algo_points(8)
+            .into(),
     ]
 }
 
 fn main() -> Result<()> {
     let input = std::env::args()
         .nth(1)
-        .ok_or("Please supply an input file!")?;
+        .ok_or_else(|| anyhow!("Please supply an input file!"))?;
 
     //let ground_truth = std::env::args()
     //    .nth(2)
@@ -389,7 +390,7 @@ impl EstimatorState {
     fn on_frame(&mut self, motion_vectors: &[MotionEntry], camera: &StandardCamera) {
         let mut motion = self
             .estimator
-            .estimate(motion_vectors, camera)
+            .estimate(motion_vectors, camera, None)
             .unwrap_or_default();
 
         motion.0 = na::UnitQuaternion::identity().nlerp(&motion.0, self.scale);

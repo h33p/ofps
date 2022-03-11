@@ -1,12 +1,21 @@
-use crate::result::Result;
+//! # Fixed size motion field
+
+use anyhow::Result;
 use nalgebra::*;
 
+/// Fixed size optical flow motion field.
 pub struct MotionField {
     vf: Matrix2xX<f32>,
     width: usize,
 }
 
 impl MotionField {
+    /// Create a new motion field.
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - width of the field.
+    /// * `height` - height of the field.
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             vf: Matrix2xX::repeat(width * height, 0f32),
@@ -14,6 +23,7 @@ impl MotionField {
         }
     }
 
+    /// Get width and height of the motion field.
     pub fn dim(&self) -> (usize, usize) {
         if self.width == 0 {
             (0, 0)
@@ -22,47 +32,113 @@ impl MotionField {
         }
     }
 
+    /// Get size of the motion field.
+    ///
+    /// This is the same as `width * height`
     pub fn size(&self) -> usize {
         self.vf.ncols()
     }
 
+    /// Get the motion field in row-major order.
+    ///
+    /// The elements returned are in the following order:
+    ///
+    /// `field[0,0].x, field[0,0].y, field[0,1].x, ... field[0,N].y, field[1,0].x, ... field[N,N].y`
     pub fn as_slice(&self) -> &[f32] {
         self.vf.as_slice()
     }
 
-    pub fn new_downscale(&self) -> DownscaleMotionField {
+    /// Create a new densification structure.
+    ///
+    /// `MotionFieldDensifier` takes arbitrary amount of motion vectors and densifies them to a
+    /// fixed size motion field.
+    pub fn new_densifier(&self) -> MotionFieldDensifier {
         let (w, h) = self.dim();
-        DownscaleMotionField::new(w, h)
+        MotionFieldDensifier::new(w, h)
     }
 
-    pub fn from_downscale(&mut self, downscale: &DownscaleMotionField) {
-        assert_eq!(downscale.mf.dim(), self.dim());
-        self.vf = downscale.mf.vf.component_div(&downscale.counts);
+    /// Finalise the motion field densifier.
+    ///
+    /// # Arguments
+    ///
+    /// * `densifier` - motion field densifier.
+    pub fn from_densifier(&mut self, densifier: &MotionFieldDensifier) {
+        assert_eq!(densifier.mf.dim(), self.dim());
+        self.vf = densifier.mf.vf.component_div(&densifier.counts);
     }
 
+    /// Get motion at coordinates.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - horizontal coordinate.
+    /// * `y` - vertical coordinate.
     pub fn get_motion(&self, x: usize, y: usize) -> Vector2<f32> {
         self.vf.column(self.width * y + x).into()
     }
 
-    pub fn motion_iter(&self) -> impl Iterator<Item = (Point2<f32>, Vector2<f32>)> + '_ {
+    /// Iterate every element of the motion field.
+    ///
+    /// The resulting iterator yields `(x, y, motion)` entries.
+    pub fn iter(&self) -> impl Iterator<Item = (usize, usize, Vector2<f32>)> + '_ {
         let (width, height) = self.dim();
         (0..height).into_iter().flat_map(move |y| {
-            (0..width).into_iter().map(move |x| {
-                (
-                    Point2::new(x as f32 / width as f32, y as f32 / height as f32),
-                    self.get_motion(x, y),
-                )
-            })
+            (0..width)
+                .into_iter()
+                .map(move |x| (x, y, self.get_motion(x, y)))
         })
+    }
+
+    /// Iterate every element of the motion field.
+    ///
+    /// The resulting iterator yields `MotionEntry` elements.
+    pub fn motion_iter(&self) -> impl Iterator<Item = (Point2<f32>, Vector2<f32>)> + '_ {
+        let (width, height) = self.dim();
+        self.iter().map(move |(x, y, motion)| {
+            (
+                Point2::new(x as f32 / width as f32, y as f32 / height as f32),
+                motion,
+            )
+        })
+    }
+
+    fn gaussian_blur(&mut self, size: usize) {
+        assert_eq!(size % 2, 1, "size must be odd!");
+
+        let mean = size as f32 / 2.0;
+        // Approximate sigma.
+        let sigma = mean / 3.0;
+        let mat = DVector::from_iterator(
+            size,
+            (0..size).map(|i| mean - i as f32).map(|i| {
+                1.0 / (sigma * (std::f32::consts::PI * 2.0).sqrt())
+                    * (-0.5 * (i / sigma) * (i / sigma)).exp()
+            }),
+        );
+        let mut mat = self.vf.clone();
+        let (w, h) = self.dim();
+        for y in 0..h {
+            for x in 0..w {}
+        }
     }
 }
 
-pub struct DownscaleMotionField {
+/// Densify arbitrary number of motion vectors.
+///
+/// This structure provides facilities to add an arbitrary amount of motion vectors together and
+/// then convert them to a fixed size motion field.
+pub struct MotionFieldDensifier {
     mf: MotionField,
     counts: Matrix2xX<f32>,
 }
 
-impl DownscaleMotionField {
+impl MotionFieldDensifier {
+    /// Create a new densifier
+    ///
+    /// # Arguments
+    ///
+    /// * `width` - width of the output motion field.
+    /// * `heighy` - height of the output motion field.
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             mf: MotionField::new(width, height),
@@ -70,19 +146,29 @@ impl DownscaleMotionField {
         }
     }
 
-    pub fn add_vector_idx(&mut self, idx: usize, motion: Vector2<f32>, weight: f32) {
+    /// Add a motion vector at specified index.
+    fn add_vector_idx(&mut self, idx: usize, motion: Vector2<f32>, weight: f32) {
         self.counts[(0, idx)] += weight;
         self.counts[(1, idx)] += weight;
-        self.mf
-            .vf
-            .set_column(idx, &(Matrix2x1::from(motion) + self.mf.vf.column(idx)));
+        self.mf.vf.set_column(
+            idx,
+            &(Matrix2x1::from(motion) * weight + self.mf.vf.column(idx)),
+        );
     }
 
-    pub fn add_vector_pos(&mut self, x: usize, y: usize, motion: Vector2<f32>, weight: f32) {
+    /// Add a motion vector at specified motion field coordinates
+    fn add_vector_pos(&mut self, x: usize, y: usize, motion: Vector2<f32>, weight: f32) {
         let idx = y * self.mf.width + x;
         self.add_vector_idx(idx, motion, weight);
     }
 
+    /// Add a motion vector with custom weight.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - starting position of the motion vector, in 0-1 range.
+    /// * `motion` - motion of the vector.
+    /// * `weight` - weight of the motion vector.
     pub fn add_vector_weighted(&mut self, pos: Point2<f32>, motion: Vector2<f32>, weight: f32) {
         let pos = clamp(pos, Point2::new(0f32, 0f32), Point2::new(1f32, 1f32));
         let (w, h) = self.mf.dim();
@@ -93,11 +179,17 @@ impl DownscaleMotionField {
         self.add_vector_pos(x, y, motion, weight);
     }
 
+    /// Add a motion vector to the field.
+    ///
+    /// # Arguments
+    ///
+    /// * `pos` - starting position of the motion vector, in 0-1 range.
+    /// * `motion` - motion of the vector.
     pub fn add_vector(&mut self, pos: Point2<f32>, motion: Vector2<f32>) {
         self.add_vector_weighted(pos, motion, 1.0);
     }
 
-    /// Calculate empty cells from non-empty neghbors
+    /// Calculate empty cells from non-empty neghbors.
     pub fn interpolate_empty_cells(&mut self) -> Result<()> {
         #[derive(PartialOrd, PartialEq, Ord, Clone, Copy, Eq, Debug, Default)]
         struct InterpCell {
@@ -216,12 +308,12 @@ impl DownscaleMotionField {
     }
 }
 
-impl From<DownscaleMotionField> for MotionField {
+impl From<MotionFieldDensifier> for MotionField {
     fn from(
-        DownscaleMotionField {
+        MotionFieldDensifier {
             mf: MotionField { mut vf, width },
             counts,
-        }: DownscaleMotionField,
+        }: MotionFieldDensifier,
     ) -> Self {
         vf.component_mul_assign(&counts);
 

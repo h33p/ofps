@@ -7,9 +7,9 @@ use c_str_macro::c_str;
 use ffmpeg_sys::*;
 use libc::c_int;
 use log::*;
-use motion_vectors::prelude::v1::{ptrplus::*, Result, *};
-use motion_vectors::utils::*;
 use nalgebra as na;
+use ofps::prelude::v1::{ptrplus::*, Result, *};
+use ofps::utils::*;
 use std::io::*;
 use std::mem::MaybeUninit;
 
@@ -20,7 +20,7 @@ impl AvBuf {
         let buf = unsafe { av_malloc(size) as *mut u8 };
 
         if buf.is_null() {
-            Err("Failed to allocate buffer".into())
+            Err(anyhow!("Failed to allocate buffer"))
         } else {
             Ok(Self(unsafe { slice::from_raw_parts_mut(buf, size) }))
         }
@@ -85,12 +85,12 @@ impl<T: Read + ?Sized> AvContext<T> {
             )
             .as_mut()
         }
-        .ok_or("Failed to allocate AVIOContext")?;
+        .ok_or_else(|| anyhow!("Failed to allocate AVIOContext"))?;
 
         let mut fmt_ctx = unsafe { avformat_alloc_context().as_mut() }.ok_or_else(|| {
             unsafe { av_free((*avio_ctx).buffer as *mut _) };
             unsafe { av_free(avio_ctx as *mut AVIOContext as *mut _) };
-            "Failed to allocate AVFormatContext"
+            anyhow!("Failed to allocate AVFormatContext")
         })?;
 
         fmt_ctx.pb = avio_ctx;
@@ -114,7 +114,7 @@ impl<T: Read + ?Sized> AvContext<T> {
             e => {
                 unsafe { av_free((*avio_ctx).buffer as *mut _) };
                 unsafe { av_free(avio_ctx as *mut AVIOContext as *mut _) };
-                Err(format!("Unable to open input ({:x})", e).into())
+                Err(anyhow!("Unable to open input ({:x})", e))
             }
         }
     }
@@ -186,7 +186,7 @@ impl<'a> RefFrame<'a> {
         match unsafe { avcodec_receive_frame(codec_ctx, frame) } {
             // TODO: match non-fatal errors
             -11 => Ok(None),
-            e if e < 0 => return Err(format!("Failed to recv frame ({})", e).into()),
+            e if e < 0 => return Err(anyhow!("Failed to recv frame ({})", e)),
             _ => Ok(Some(Self { frame })),
         }
     }
@@ -226,15 +226,15 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                 0,
             )
         } {
-            e if e < 0 => Err(format!("Failed to find a stream ({})", e)),
+            e if e < 0 => Err(anyhow!("Failed to find a stream ({})", e)),
             i => Ok(i),
         }?;
 
         let mut codec_ctx = unsafe { avcodec_alloc_context3(decoder.as_ptr()).as_mut() }
-            .ok_or("Failed to allocate codec context")?;
+            .ok_or_else(|| anyhow!("Failed to allocate codec context"))?;
 
         let stream = unsafe { (*av_ctx.fmt_ctx.streams.offset(stream_idx as _)).as_mut() }
-            .ok_or("Stream info null")?;
+            .ok_or_else(|| anyhow!("Stream info null"))?;
 
         println!("{:?}", stream);
 
@@ -247,7 +247,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
         match unsafe { avcodec_parameters_to_context(codec_ctx, stream.codecpar) } {
             e if e < 0 => {
                 unsafe { avcodec_free_context(codec_ctx.as_mut_ptr()) };
-                return Err(format!("Failed to get codec parameters ({})", e).into());
+                return Err(anyhow!("Failed to get codec parameters ({})", e));
             }
             _ => {}
         }
@@ -266,15 +266,16 @@ impl<T: Read + ?Sized> AvDecoder<T> {
         match unsafe { avcodec_open2(codec_ctx, decoder.as_ptr(), av_opts.as_mut_ptr()) } {
             e if e < 0 => {
                 unsafe { avcodec_free_context(codec_ctx.as_mut_ptr()) };
-                return Err(format!("Failed to open codec ({})", e).into());
+                return Err(anyhow!("Failed to open codec ({})", e));
             }
             _ => {}
         }
 
-        let av_frame = unsafe { av_frame_alloc().as_mut() }.ok_or("Unable to allocate frame")?;
+        let av_frame = unsafe { av_frame_alloc().as_mut() }
+            .ok_or_else(|| anyhow!("Unable to allocate frame"))?;
 
-        let sws_av_frame =
-            unsafe { av_frame_alloc().as_mut() }.ok_or("Unable to allocate sws frame")?;
+        let sws_av_frame = unsafe { av_frame_alloc().as_mut() }
+            .ok_or_else(|| anyhow!("Unable to allocate sws frame"))?;
 
         println!(
             "{:x} {:x}",
@@ -313,7 +314,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
         out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
     ) -> Result<bool> {
         match unsafe { avcodec_send_packet(self.codec_ctx, packet) } {
-            e if e < 0 => return Err(format!("Failed to send packet ({})", e).into()),
+            e if e < 0 => return Err(anyhow!("Failed to send packet ({})", e)),
             _ => {}
         }
 
@@ -349,7 +350,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                         )
                         .as_mut()
                     }
-                    .ok_or("Unable to allocate sws context")?,
+                    .ok_or_else(|| anyhow!("Unable to allocate sws context"))?,
                 };
 
                 let sws_frame = &mut self.sws_av_frame;
@@ -435,7 +436,7 @@ impl<T: Read + ?Sized> Decoder for AvDecoder<T> {
 
         while !reached_stream || skip > 0 {
             match unsafe { av_read_frame(self.av_ctx.fmt_ctx, packet.as_mut_ptr()) } {
-                e if e < 0 => return Err(format!("Failed to read frame ({})", e).into()),
+                e if e < 0 => return Err(anyhow!("Failed to read frame ({})", e)),
                 _ => {
                     if skip > 0 {
                         skip -= 1;

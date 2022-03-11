@@ -6,9 +6,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-motion-vectors = { version = "0.1", path = "../motion-vectors" }
+ofps = { version = "0.1", path = "../ofps" }
 terminal_size = "0.1"
 motion-loader = { version = "0.1", path = "../motion-loader" }
+almeida-estimator = { version = "0.1", path = "../almeida-estimator" }
+multiview-estimator = { version = "0.1", path = "../multiview-estimator" }
+libmv-estimator = { version = "0.1", path = "../libmv-estimator" }
 env_logger = "0.9"
 log = "0.4"
 nalgebra = "0.30"

@@ -1,4 +1,4 @@
-use motion_vectors::prelude::v1::*;
+use ofps::prelude::v1::*;
 
 pub struct Texture {
     pub texture: wgpu::Texture,

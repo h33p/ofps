@@ -1,6 +1,6 @@
 //! Common `Decoder` instance loader.
 
-use motion_vectors::prelude::v1::*;
+use ofps::prelude::v1::*;
 
 use nalgebra as na;
 use std::io::{BufReader, Read};
@@ -9,7 +9,9 @@ use std::net::{TcpListener, TcpStream};
 fn open_file(input: &str) -> Result<Box<dyn Read>> {
     if input.starts_with("tcp://") {
         let input = input.strip_prefix("tcp://").expect("Cannot strip prefix");
-        let (addr, port) = input.split_once(":").ok_or("Invalid format")?;
+        let (addr, port) = input
+            .split_once(":")
+            .ok_or_else(|| anyhow!("Invalid format"))?;
         let port: usize = str::parse(port)?;
 
         let stream = if addr == "@" {

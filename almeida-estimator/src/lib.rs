@@ -1,5 +1,13 @@
-use crate::prelude::v1::*;
+//! # Implementation of "Robust Estimation of Camera Motion Using Optical Flow Models".
+//!
+//! The following estimator produces relatively accurate rotation estimates, with no translational
+//! output.
+//!
+//! This is not a blind reimplementation of the paper - it contains several improvements to the
+//! methods used.
+
 use nalgebra as na;
+use ofps::prelude::v1::*;
 use rand::seq::SliceRandom;
 
 const EPS: f32 = 0.01745329f32;
@@ -47,6 +55,7 @@ impl Estimator for AlmeidaEstimator {
         &mut self,
         motion_vectors: &[MotionEntry],
         camera: &StandardCamera,
+        _move_magnitude: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
         let model = if let Some(num_iters) = self.ransac_options {
             solve_ypr_ransac(motion_vectors, camera, num_iters)
@@ -85,7 +94,7 @@ fn solve_ypr_given(motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])]) -> na::V
         .map(dot_map(&motion)),
     );
 
-    let b = na::Matrix3x1::from_iterator(
+    let b = na::Vector3::from_iterator(
         [dot(1, 0), dot(2, 0), dot(3, 0)]
             .iter()
             .map(dot_map(&motion)),
@@ -187,4 +196,106 @@ fn sample_ypr_model(
     camera: &impl MotionModel,
 ) -> na::Vector2<f32> {
     camera.yaw(pos) * model.x + camera.pitch(pos) * model.y + camera.roll(pos) * model.z
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    fn get_grid(
+        grid_cnt_x: usize,
+        grid_cnt_y: usize,
+        camera: &StandardCamera,
+    ) -> Vec<na::Point3<f32>> {
+        let mut new_points = vec![];
+
+        for x in 1..grid_cnt_x {
+            for y in 1..grid_cnt_y {
+                let x = x as f32 / grid_cnt_x as f32;
+                let y = y as f32 / grid_cnt_y as f32;
+                new_points.push(na::Point2::new(x, y));
+            }
+        }
+
+        let view = calc_view(Default::default(), Default::default());
+
+        new_points
+            .into_iter()
+            .map(|p| camera.unproject(p, view))
+            .collect()
+    }
+
+    fn calc_view(rot: na::UnitQuaternion<f32>, pos: na::Point3<f32>) -> na::Matrix4<f32> {
+        na::Matrix4::look_at_rh(
+            &pos,
+            &(pos + rot.transform_vector(&na::Vector3::new(0.0, 1.0, 0.0))),
+            &rot.transform_vector(&na::Vector3::new(0.0, 0.0, 1.0)),
+        )
+    }
+
+    fn project_grid<'a>(
+        grid: impl IntoIterator<Item = &'a na::Point3<f32>>,
+        camera: &StandardCamera,
+        view: na::Matrix4<f32>,
+    ) -> Vec<na::Point2<f32>> {
+        grid.into_iter().map(|&p| camera.project(p, view)).collect()
+    }
+
+    fn calc_field(
+        p1: impl IntoIterator<Item = na::Point2<f32>>,
+        p2: impl IntoIterator<Item = na::Point2<f32>>,
+    ) -> Vec<MotionEntry> {
+        p1.into_iter()
+            .zip(p2.into_iter())
+            .filter(|(p1, p2)| p1.coords.magnitude() <= 0.71 && p2.coords.magnitude() <= 0.71)
+            .map(|(p1, p2)| (p1, p2 - p1))
+            .collect()
+    }
+
+    #[test]
+    fn test_rotation() {
+        const ROT: f32 = 1.0;
+
+        let angles = [
+            (0.0, 0.0, 0.0),
+            (ROT, 0.0, 0.0),
+            (0.0, ROT, 0.0),
+            (0.0, 0.0, ROT),
+            (ROT, ROT, 0.0),
+            (ROT, 0.0, ROT),
+            (0.0, ROT, ROT),
+            (ROT, ROT, ROT),
+        ];
+
+        let camera = StandardCamera::new(90.0, 90.0);
+
+        let mut grid = get_grid(50, 50, &camera);
+
+        for rot in angles.iter().map(|&(r, p, y)| {
+            na::UnitQuaternion::from_euler_angles(r.to_radians(), p.to_radians(), y.to_radians())
+        }) {
+            let p1 = project_grid(
+                &grid,
+                &camera,
+                calc_view(Default::default(), Default::default()),
+            );
+            let p2 = project_grid(&grid, &camera, calc_view(rot, Default::default()));
+
+            let field = calc_field(p1, p2);
+
+            let mut estimator = AlmeidaEstimator::default();
+            let (r, tr) = estimator.estimate(&field, &camera, None).unwrap();
+
+            let delta = rot.angle_to(&r).to_degrees();
+
+            assert!(
+                delta < 0.1 * ROT,
+                "{:?} vs {:?}: {} > {}",
+                rot.euler_angles(),
+                r.euler_angles(),
+                delta,
+                0.1 * ROT
+            );
+        }
+    }
 }

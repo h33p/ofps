@@ -6,25 +6,33 @@ debug = true
 resolver = "2"
 
 members = [
-	"motion-vectors",
+	"ofps",
 	"motion-visualiser",
 	"motion-loader",
 	"motion-extract",
 	"motion-analyser",
+	"flow-extract",
 	"mvec-av",
 	"mvec-cv",
 	"ptrplus",
 	"libmv-rust",
+	"almeida-estimator",
+	"libmv-estimator",
+	"multiview-estimator",
 ]
 
 default-members = [
-	"motion-vectors",
+	"ofps",
 	"motion-visualiser",
 	"motion-loader",
 	"motion-extract",
 	"motion-analyser",
+	"flow-extract",
 	"mvec-av",
 	"libmv-rust",
+	"almeida-estimator",
+	"libmv-estimator",
+	"multiview-estimator",
 	#"mvec-cv",
 ]
 

@@ -1,13 +1,13 @@
 //! Extract motion vectors into a easy-to-read file.
 
-use motion_vectors::prelude::v1::*;
+use ofps::prelude::v1::*;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 
 fn main() -> Result<()> {
     let input = std::env::args()
         .nth(1)
-        .ok_or("Please supply a video file!")?;
+        .ok_or_else(|| anyhow!("Please supply a video file!"))?;
 
     // Output file must always end with `.mvec` for the loader to detect it.
     let output = std::env::args().nth(2);

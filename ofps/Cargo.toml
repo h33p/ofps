@@ -1,5 +1,5 @@
 [package]
-name = "motion-vectors"
+name = "ofps"
 version = "0.1.0"
 edition = "2018"
 
@@ -9,5 +9,5 @@ edition = "2018"
 nalgebra = "0.30"
 ptrplus = { version = "1", path = "../ptrplus" }
 bytemuck = { version = "1", features = [ "derive" ] }
-libmv = { path = "../libmv-rust" }
 rand = "0.8"
+anyhow = { version = "1", features = ["std"] }

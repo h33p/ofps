@@ -6,5 +6,5 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-motion-vectors = { version = "0.1", path = "../motion-vectors" }
+ofps = { version = "0.1", path = "../ofps" }
 motion-loader = { version = "0.1", path = "../motion-loader" }

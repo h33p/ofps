@@ -6,7 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-motion-vectors = { version = "0.1", path = "../motion-vectors" }
+ofps = { version = "0.1", path = "../ofps" }
+almeida-estimator = { version = "0.1", path = "../almeida-estimator" }
+libmv-estimator = { version = "0.1", path = "../libmv-estimator" }
 motion-loader = { version = "0.1", path = "../motion-loader" }
 nalgebra = "0.30"
 rayon = "1"
