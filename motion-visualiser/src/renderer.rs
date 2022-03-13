@@ -1,18 +1,113 @@
 use crate::texture::Texture;
+use epi::App;
 use log::*;
 use ofps::prelude::v1::{Error, *};
+use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
 use wgpu::*;
 use winit::{event::*, window::Window};
 
+use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
+use egui_winit::State;
+
 // Adapted from: https://sotrh.github.io/learn-wgpu/
+// and https://github.com/hasenbanck/egui_example/
+
+pub enum GuiEvent {
+    RequestRedraw,
+}
+
+/// This is the repaint signal type that egui needs for requesting a repaint from another thread.
+/// It sends the custom RequestRedraw event to the winit event loop.
+pub struct GuiRepaintSignal(pub Mutex<winit::event_loop::EventLoopProxy<GuiEvent>>);
+
+impl epi::backend::RepaintSignal for GuiRepaintSignal {
+    fn request_repaint(&self) {
+        self.0
+            .lock()
+            .unwrap()
+            .send_event(GuiEvent::RequestRedraw)
+            .ok();
+    }
+}
+
+pub struct GuiRenderState {
+    render_pass: RenderPass,
+    state: State,
+    context: egui::Context,
+    app: egui_demo_lib::WrapApp,
+}
+
+impl GuiRenderState {
+    fn new(device: &Device, format: TextureFormat, window: &Window) -> Self {
+        let size = window.inner_size();
+
+        Self {
+            render_pass: RenderPass::new(device, format, 1),
+            state: State::new(4096, window),
+            context: Default::default(),
+            app: Default::default(),
+        }
+    }
+
+    fn update(&mut self, window: &Window, repaint_signal: Arc<GuiRepaintSignal>) {
+        let input = self.state.take_egui_input(&window);
+        self.context.begin_frame(input);
+        let app_output = epi::backend::AppOutput::default();
+
+        let frame = epi::Frame::new(epi::backend::FrameData {
+            info: epi::IntegrationInfo {
+                name: "ofps_suite",
+                web_info: None,
+                cpu_usage: None,
+                native_pixels_per_point: Some(window.scale_factor() as _),
+                prefer_dark_mode: None,
+            },
+            output: app_output,
+            repaint_signal,
+        });
+
+        self.app.update(&self.context, &frame);
+    }
+
+    fn render<'a>(
+        &'a mut self,
+        rpass: &mut wgpu::RenderPass<'a>,
+        config: &SurfaceConfiguration,
+        device: &Device,
+        window: &Window,
+        queue: &Queue,
+    ) -> Result<()> {
+        // End the UI frame. We could now handle the output and draw the UI with the backend.
+        let output = self.context.end_frame();
+        let paint_jobs = self.context.tessellate(output.shapes);
+
+        let screen_descriptor = ScreenDescriptor {
+            physical_width: config.width,
+            physical_height: config.height,
+            scale_factor: window.scale_factor() as f32,
+        };
+
+        self.render_pass
+            .add_textures(&device, &queue, &output.textures_delta)?;
+        self.render_pass.remove_textures(output.textures_delta)?;
+        self.render_pass
+            .update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
+
+        self.render_pass
+            .execute_with_renderpass(rpass, &paint_jobs, &screen_descriptor)
+            .map_err(<_>::into)
+    }
+}
 
 pub struct RenderState {
     surface: Surface,
     device: Device,
+    pub window: Window,
     queue: Queue,
     config: SurfaceConfiguration,
     pub size: winit::dpi::PhysicalSize<u32>,
+    gui_state: GuiRenderState,
     render_pipeline: RenderPipeline,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     vertex_buffer: Option<Buffer>,
@@ -33,13 +128,13 @@ impl RenderState {
     }
 
     // Creating some of the wgpu types requires async code
-    pub async fn new(window: &Window) -> Result<Self> {
+    pub async fn new(window: Window) -> Result<Self> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = Instance::new(Backends::all());
-        let surface = unsafe { instance.create_surface(window) };
+        let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: PowerPreference::HighPerformance,
@@ -60,17 +155,21 @@ impl RenderState {
             )
             .await?;
 
+        let surface_format = surface
+            .get_preferred_format(&adapter)
+            .ok_or_else(|| anyhow!("Failed to get preferred format"))?;
+
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
-            format: surface
-                .get_preferred_format(&adapter)
-                .ok_or_else(|| anyhow!("Failed to get preferred format"))?,
+            format: surface_format,
             width: size.width,
             height: size.height,
             present_mode: PresentMode::Fifo,
         };
 
         surface.configure(&device, &config);
+
+        let gui_state = GuiRenderState::new(&device, surface_format, &window);
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -88,14 +187,7 @@ impl RenderState {
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler {
-                            // This is only for TextureSampleType::Depth
-                            comparison: false,
-                            // This should be true if the sample_type of the texture is:
-                            //     TextureSampleType::Float { filterable: true }
-                            // Otherwise you'll get an error.
-                            filtering: true,
-                        },
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
                 ],
@@ -141,8 +233,8 @@ impl RenderState {
                 cull_mode: Some(Face::Back),
                 // Setting this to anything other than Fill requires Features::NON_FILL_POLYGON_MODE
                 polygon_mode: PolygonMode::Fill,
-                // Requires Features::DEPTH_CLAMPING
-                clamp_depth: false,
+                // Requires Features::DEPTH_CLIP_CONTROL
+                unclipped_depth: false,
                 // Requires Features::CONSERVATIVE_RASTERIZATION
                 conservative: false,
             },
@@ -152,15 +244,18 @@ impl RenderState {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
+            multiview: None,
         });
 
         Ok(Self {
             surface,
             device,
+            window,
             queue,
             config,
             size,
             texture_bind_group_layout,
+            gui_state,
             render_pipeline,
             vertex_buffer: None,
             vertex_motion_buffer: None,
@@ -184,10 +279,14 @@ impl RenderState {
     }
 
     pub fn input(&mut self, event: &WindowEvent) -> bool {
-        false
+        self.gui_state
+            .state
+            .on_event(&self.gui_state.context, event)
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self, repaint_signal: &Arc<GuiRepaintSignal>) {
+        self.gui_state.update(&self.window, repaint_signal.clone())
+    }
 
     pub fn render(
         &mut self,
@@ -363,6 +462,14 @@ impl RenderState {
                 render_pass.set_index_buffer(ibuf.slice(..), IndexFormat::Uint32);
                 render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
             }
+
+            self.gui_state.render(
+                &mut render_pass,
+                &self.config,
+                &self.device,
+                &self.window,
+                &self.queue,
+            )?;
         }
 
         // submit will accept anything that implements IntoIter

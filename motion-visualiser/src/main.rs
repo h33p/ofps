@@ -4,6 +4,7 @@ use log::*;
 use multiview_estimator::*;
 use nalgebra as na;
 use ofps::prelude::v1::*;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use winit::{
@@ -15,7 +16,7 @@ use winit::{
 mod renderer;
 mod texture;
 
-use renderer::{RenderError, RenderState};
+use renderer::{GuiEvent, GuiRepaintSignal, RenderError, RenderState};
 
 fn reset_grid(
     grid: &mut Vec<na::Point3<f32>>,
@@ -81,7 +82,7 @@ fn main() -> Result<()> {
     let mut c = motion_loader::create_decoder(&input, None)?;
 
     env_logger::init();
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::with_user_event();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::Size::Logical(winit::dpi::LogicalSize {
             width: 1920.0 * 0.7,
@@ -90,7 +91,7 @@ fn main() -> Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    let mut state = pollster::block_on(RenderState::new(&window))?;
+    let mut state = pollster::block_on(RenderState::new(window))?;
 
     let mut mf = MotionField::new(300, 300);
     let mut motion_vectors = vec![];
@@ -129,6 +130,8 @@ fn main() -> Result<()> {
     //let mut estimator = LibmvEstimator::default();
     //let mut estimator = AlmeidaEstimator::default();
     let mut detector = BlockMotionDetection::default();
+
+    let repaint_signal = Arc::new(GuiRepaintSignal(Mutex::new(event_loop.create_proxy())));
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
@@ -232,7 +235,8 @@ fn main() -> Result<()> {
                 }
             }
 
-            state.update();
+            state.update(&repaint_signal);
+
             match state.render(
                 &mf,
                 rgba_frame.as_slice(),
@@ -259,7 +263,7 @@ fn main() -> Result<()> {
         Event::WindowEvent {
             ref event,
             window_id,
-        } if window_id == window.id() && !state.input(event) => match event {
+        } if window_id == state.window.id() && !state.input(event) => match event {
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
                 input:
@@ -307,10 +311,10 @@ fn main() -> Result<()> {
             }
             _ => {}
         },
-        Event::MainEventsCleared => {
+        Event::MainEventsCleared | Event::UserEvent(GuiEvent::RequestRedraw) => {
             // RedrawRequested will only trigger once, unless we manually
             // request it.
-            window.request_redraw();
+            state.window.request_redraw();
         }
         _ => {}
     });

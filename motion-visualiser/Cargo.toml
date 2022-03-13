@@ -17,10 +17,16 @@ log = "0.4"
 nalgebra = "0.30"
 
 # wgpu dependencies
-image = "0.23"
-winit = "0.25"
+image = "0.24"
+winit = "0.26"
 cgmath = "0.18"
-wgpu = "0.11"
+wgpu = "0.12"
 pollster = "0.2"
-bytemuck = { version = "1.4", features = [ "derive" ] }
+bytemuck = { version = "1", features = [ "derive" ] }
 
+# egui
+egui = "0.17"
+epi = "0.17"
+egui-winit = "0.17"
+egui_wgpu_backend = "0.17"
+egui_demo_lib = "0.17"
