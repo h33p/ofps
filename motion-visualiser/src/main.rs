@@ -128,6 +128,7 @@ fn main() -> Result<()> {
     let mut estimator = MultiviewEstimator::default();
     //let mut estimator = LibmvEstimator::default();
     //let mut estimator = AlmeidaEstimator::default();
+    let mut detector = BlockMotionDetection::default();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
@@ -157,7 +158,7 @@ fn main() -> Result<()> {
                         return;
                     }
 
-                    if let Err(e) = estimator.motion_step(
+                    /*if let Err(e) = estimator.motion_step(
                         &motion_vectors,
                         &camera,
                         Some(0.1),
@@ -166,7 +167,7 @@ fn main() -> Result<()> {
                     ) {
                         println!("Failed to estimate motion: {}", e);
                         continue;
-                    }
+                    }*/
 
                     //rot = Default::default();
                     //pos = Default::default();
@@ -174,9 +175,9 @@ fn main() -> Result<()> {
                     //pos.x -= 0.1;
                     //rot *= na::UnitQuaternion::from_euler_angles(0.0, 0.01, 0.0);
 
-                    println!("{:?} | {:?}", rot, pos);
+                    //println!("{:?} | {:?}", rot, pos);
 
-                    let mut densify_mf = mf.new_densifier();
+                    /*let mut densify_mf = mf.new_densifier();
 
                     for &(pos, motion) in &motion_vectors {
                         densify_mf.add_vector(pos, motion);
@@ -184,7 +185,7 @@ fn main() -> Result<()> {
 
                     if densify_mf.interpolate_empty_cells().is_err() {
                         continue;
-                    }
+                    }*/
 
                     cnt += frames;
 
@@ -192,7 +193,7 @@ fn main() -> Result<()> {
                     contains_buf.resize(mf.size(), 0.0);
 
                     let (w, h) = mf.dim();
-                    if w > 0 && h > 0 {
+                    /*if w > 0 && h > 0 {
                         if cnt < 0 {
                             fill_grid(&mut tracked_objs, &camera, rot, pos);
                         }
@@ -217,6 +218,10 @@ fn main() -> Result<()> {
                             );
                             contains_buf[x + y * w] += 1.0;
                         }
+                    }*/
+
+                    if let Some(motion) = detector.detect_motion(motion_vectors.iter().copied()) {
+                        println!("Motion: {motion}");
                     }
 
                     if break_out {

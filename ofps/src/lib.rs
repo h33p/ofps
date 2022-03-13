@@ -13,6 +13,7 @@
 
 pub mod camera;
 pub mod decoder;
+pub mod detection;
 pub mod estimator;
 pub mod motion_field;
 #[cfg(feature = "plugins")]
@@ -24,6 +25,7 @@ pub mod prelude {
         pub use crate::{
             camera::*,
             decoder::{Decoder, MotionEntry, MotionVectors, RGBA},
+            detection::BlockMotionDetection,
             estimator::Estimator,
             motion_field::{MotionField, MotionFieldDensifier},
         };

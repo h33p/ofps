@@ -315,7 +315,7 @@ impl From<MotionFieldDensifier> for MotionField {
             counts,
         }: MotionFieldDensifier,
     ) -> Self {
-        vf.component_mul_assign(&counts);
+        vf.component_div_assign(&counts);
 
         Self { vf, width }
     }
