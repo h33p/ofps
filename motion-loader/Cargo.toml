@@ -7,11 +7,5 @@ edition = "2021"
 
 [dependencies]
 ofps = { version = "0.1", path = "../ofps" }
-mvec-av = { version = "0.1", path = "../mvec-av", optional = true }
-mvec-cv = { version = "0.1", path = "../mvec-cv", optional = true }
 nalgebra = "0.30"
 
-[features]
-default = ["mpeg"]
-mpeg = ["mvec-av"]
-cv = ["mvec-cv"]

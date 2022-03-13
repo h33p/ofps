@@ -14,7 +14,7 @@ fn main() -> Result<()> {
     let output = output.as_deref().unwrap_or(&input);
     let output = format!("{output}.mvec");
 
-    let mut c = motion_loader::create_decoder(&input)?;
+    let mut c = motion_loader::create_decoder(&input, None)?;
 
     let out = File::create(output)?;
     let mut motion_vectors = vec![];

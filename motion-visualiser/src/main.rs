@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         .and_then(|v| v.parse::<f64>().ok())
         .unwrap_or(0.0);
 
-    let mut c = motion_loader::create_decoder(&input)?;
+    let mut c = motion_loader::create_decoder(&input, None)?;
 
     env_logger::init();
     let event_loop = EventLoop::new();

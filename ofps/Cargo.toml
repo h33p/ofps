@@ -11,3 +11,16 @@ ptrplus = { version = "1", path = "../ptrplus" }
 bytemuck = { version = "1", features = [ "derive" ] }
 rand = "0.8"
 anyhow = { version = "1", features = ["std"] }
+libloading = { version = "^0.7.2", optional = true }
+cglue = { version = "0.2", optional = true }
+goblin = { version = "0.4", optional = true, features = ["pe32", "pe64", "elf32", "elf64", "mach32", "mach64"]}
+log = "0.4"
+paste = "1"
+dirs = "4"
+
+[build-dependencies]
+rustc_version = "0.4"
+
+[features]
+default = ["plugins"]
+plugins = ["libloading", "cglue", "goblin"]

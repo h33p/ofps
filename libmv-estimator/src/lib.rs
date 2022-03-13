@@ -9,6 +9,10 @@ use nalgebra as na;
 use ofps::prelude::v1::*;
 use std::collections::BTreeMap;
 
+ofps::define_descriptor!(libmv, Estimator, |_| Ok(
+    Box::new(LibmvEstimator::default())
+));
+
 pub fn fundamental(
     entries: impl Iterator<Item = MotionEntry>,
     outlier_proba: f64,

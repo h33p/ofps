@@ -29,10 +29,10 @@ default-members = [
 	"motion-analyser",
 	"flow-extract",
 	"mvec-av",
+	"mvec-cv",
 	"libmv-rust",
 	"almeida-estimator",
 	"libmv-estimator",
 	"multiview-estimator",
-	#"mvec-cv",
 ]
 

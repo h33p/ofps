@@ -16,6 +16,13 @@ use opencv::videoio::*;
 use std::io::*;
 use std::mem::MaybeUninit;
 
+ofps::define_descriptor!(cv, Decoder, |args| CvDecoder::try_new(
+    &args,
+    (1, 1),
+    (150, 150)
+)
+.map(|d| Box::new(d) as _));
+
 pub struct CvDecoder {
     capture: VideoCapture,
     frame: Mat,
@@ -96,7 +103,7 @@ impl Decoder for CvDecoder {
                     imgproc::INTER_LINEAR,
                 )?;
             } else {
-                return Err("Failed to grab frame".into());
+                return Err(anyhow!("Failed to grab frame"));
             }
         }
 

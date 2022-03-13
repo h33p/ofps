@@ -15,6 +15,8 @@ pub mod camera;
 pub mod decoder;
 pub mod estimator;
 pub mod motion_field;
+#[cfg(feature = "plugins")]
+pub mod plugins;
 pub mod utils;
 
 pub mod prelude {
@@ -25,7 +27,12 @@ pub mod prelude {
             estimator::Estimator,
             motion_field::{MotionField, MotionFieldDensifier},
         };
+        #[cfg(feature = "plugins")]
+        pub use crate::{define_descriptor, plugins::PluginStore};
         pub use anyhow::{anyhow, Error, Result};
         pub use ptrplus;
     }
 }
+
+pub use cglue;
+pub use paste;

@@ -1,6 +1,9 @@
 //! # Utility module
 
+use anyhow::{anyhow, Result};
 use nalgebra as na;
+use std::io::{BufReader, Read};
+use std::net::{TcpListener, TcpStream};
 
 pub trait AsMutPtr {
     type Mut;
@@ -83,6 +86,35 @@ pub fn triangulate_scale(ab: na::Vector3<f32>, bc: na::Vector3<f32>, ac: na::Vec
     let lu = lhs.lu();
 
     lu.solve(&ab).map(|v| v.x).unwrap_or(1.0)
+}
+
+/// Open a file or an input stream.
+pub fn open_file(input: &str) -> Result<Box<dyn Read>> {
+    if input.starts_with("tcp://") {
+        let input = input.strip_prefix("tcp://").expect("Cannot strip prefix");
+        let (addr, port) = input
+            .split_once(":")
+            .ok_or_else(|| anyhow!("Invalid format"))?;
+        let port: usize = str::parse(port)?;
+
+        let stream = if addr == "@" {
+            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+            let (sock, addr) = listener.accept()?;
+            println!("Accept {}", addr);
+            sock
+        } else {
+            println!("Connecting to {}", input);
+            TcpStream::connect(input)?
+        };
+
+        println!("Got stream!");
+
+        Ok(Box::new(stream))
+    } else {
+        std::fs::File::open(input)
+            .map(|i| Box::new(i) as _)
+            .map_err(Into::into)
+    }
 }
 
 #[cfg(test)]

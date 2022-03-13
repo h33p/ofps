@@ -1,0 +1,1 @@
+export LD_LIBRARY_PATH=${PWD}/libmv-rust/libmv/bin-opt/lib:$LD_LIBRARY_PATH

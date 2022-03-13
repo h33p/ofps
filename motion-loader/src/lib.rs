@@ -1,72 +1,31 @@
 //! Common `Decoder` instance loader.
 
 use ofps::prelude::v1::*;
+use std::io::{BufReader, Read};
 
 use nalgebra as na;
-use std::io::{BufReader, Read};
-use std::net::{TcpListener, TcpStream};
-
-fn open_file(input: &str) -> Result<Box<dyn Read>> {
-    if input.starts_with("tcp://") {
-        let input = input.strip_prefix("tcp://").expect("Cannot strip prefix");
-        let (addr, port) = input
-            .split_once(":")
-            .ok_or_else(|| anyhow!("Invalid format"))?;
-        let port: usize = str::parse(port)?;
-
-        let stream = if addr == "@" {
-            let listener = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-            let (sock, addr) = listener.accept()?;
-            println!("Accept {}", addr);
-            sock
-        } else {
-            println!("Connecting to {}", input);
-            TcpStream::connect(input)?
-        };
-
-        println!("Got stream!");
-
-        Ok(Box::new(stream))
-    } else {
-        std::fs::File::open(input)
-            .map(|i| Box::new(i) as _)
-            .map_err(Into::into)
-    }
-}
 
 /// Create a decoder depending on the input.
 ///
 /// If the input ends with `.mvec`, it will be interpreted as a motion vector file.
 ///
 /// In MPEG mode, `tcp://` will be interpreted as a TCP network stream rather than a regular file.
-pub fn create_decoder(input: &str) -> Result<Box<dyn Decoder>> {
-    let max_size = (150, 150);
+pub fn create_decoder(input: &str, plugin: Option<&str>) -> Result<Box<dyn Decoder>> {
+    if let Some(plugin) = plugin {
+        let store = PluginStore::new();
+        store.create_decoder(plugin, input.to_string())
+    } else {
+        if input.ends_with(".mvec") {
+            let reader = ofps::utils::open_file(input)?;
+            let reader = BufReader::new(reader);
 
-    if input.ends_with(".mvec") {
-        let reader = open_file(input)?;
-        let reader = BufReader::new(reader);
+            let decoder = MvecFile { reader };
 
-        let decoder = MvecFile { reader };
+            return Ok(Box::new(decoder));
+        }
 
-        return Ok(Box::new(decoder));
+        create_decoder(input, Some("av"))
     }
-
-    #[cfg(feature = "mvec-av")]
-    let c = {
-        let f = open_file(input)?;
-
-        // Mul width by 2, because of character width
-        let mut c = mvec_av::AvDecoder::try_new(f, (1, 1), max_size)?;
-
-        c.av_ctx.dump_format();
-
-        c
-    };
-
-    #[cfg(feature = "mvec-cv")]
-    let c = mvec_cv::CvDecoder::try_new(input, (1, 1), max_size)?;
-
-    Ok(Box::new(c))
 }
 
 struct MvecFile<T> {

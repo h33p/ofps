@@ -10,6 +10,10 @@ use opencv::calib3d::{find_essential_mat, recover_pose_estimated, LMEDS, RANSAC}
 use opencv::core::*;
 use std::collections::BTreeMap;
 
+ofps::define_descriptor!(multiview, Estimator, |_| Ok(Box::new(
+    MultiviewEstimator::default()
+)));
+
 type Float = noisy_float::NoisyFloat<f32, noisy_float::checkers::NumChecker>;
 
 struct PrevMotion {

@@ -10,6 +10,10 @@ use nalgebra as na;
 use ofps::prelude::v1::*;
 use rand::seq::SliceRandom;
 
+ofps::define_descriptor!(almeida, Estimator, |_| Ok(Box::new(
+    AlmeidaEstimator::default()
+)));
+
 const EPS: f32 = 0.01745329f32;
 
 pub trait MotionModel {

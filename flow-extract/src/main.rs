@@ -58,9 +58,9 @@ fn main() -> Result<()> {
     let output = std::env::args().nth(2);
     let output = output.as_deref().unwrap_or(&input);
 
-    std::fs::create_dir_all(output)?;
+    let mut c = motion_loader::create_decoder(&input, None)?;
 
-    let mut c = motion_loader::create_decoder(&input)?;
+    std::fs::create_dir_all(output)?;
 
     let mut motion_vectors = vec![];
     let mut mf = MotionField::new(616 / 2, 186 / 2);

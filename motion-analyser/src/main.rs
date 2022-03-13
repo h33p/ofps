@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     let fov = 60.0;
     let camera = StandardCamera::new(fov, fov * 9.0 / 16.0);
 
-    let mut c = motion_loader::create_decoder(&input)?;
+    let mut c = motion_loader::create_decoder(&input, None)?;
 
     let mut motion_vectors = vec![];
 

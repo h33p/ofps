@@ -13,6 +13,11 @@ use ofps::utils::*;
 use std::io::*;
 use std::mem::MaybeUninit;
 
+ofps::define_descriptor!(av, Decoder, |input| {
+    let f = open_file(&input)?;
+    AvDecoder::try_new(f, (1, 1), (150, 150)).map(|d| Box::new(d) as _)
+});
+
 pub struct AvBuf(&'static mut [u8]);
 
 impl AvBuf {
