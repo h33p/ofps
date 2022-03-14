@@ -13,6 +13,7 @@ use winit::{
     window::WindowBuilder,
 };
 
+mod app;
 mod renderer;
 mod texture;
 
@@ -70,18 +71,8 @@ fn fill_grid(
 }
 
 fn main() -> Result<()> {
-    let input = std::env::args()
-        .nth(1)
-        .ok_or_else(|| anyhow!("Please supply a video file!"))?;
-
-    let seek = std::env::args()
-        .nth(2)
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(0.0);
-
-    let mut c = motion_loader::create_decoder(&input, None)?;
-
     env_logger::init();
+
     let event_loop = EventLoop::with_user_event();
     let window = WindowBuilder::new()
         .with_inner_size(winit::dpi::Size::Logical(winit::dpi::LogicalSize {
@@ -91,158 +82,17 @@ fn main() -> Result<()> {
         .build(&event_loop)
         .unwrap();
 
-    let mut state = pollster::block_on(RenderState::new(window))?;
+    let app = app::OfpsApp::default();
 
-    let mut mf = MotionField::new(300, 300);
-    let mut motion_vectors = vec![];
-
-    let rate = match c.get_framerate() {
-        Some(x) if x < 1000.0 && x > 0.0 => x,
-        _ => 30f64,
-    };
-
-    println!("FRAMERATE: {}", rate);
-
-    let interval = 1f64 / rate;
-
-    let start = Instant::now() - Duration::from_secs_f64(seek);
-
-    let mut cnt = 0;
-
-    let mut rgba_frame = vec![];
-    let mut rgba_width = 0;
-    let mut tracked_objs = vec![];
-
-    let mut contains_buf = vec![];
-
-    let mut mouse_pos = None;
-
-    let fov = 39.6;
-
-    let camera = StandardCamera::new(fov, fov * 9.0 / 16.0);
-
-    let mut rot: na::UnitQuaternion<f32> = Default::default();
-    let mut pos: na::Point3<f32> = Default::default();
-
-    reset_grid(&mut tracked_objs, &camera, rot, pos);
-
-    let mut estimator = MultiviewEstimator::default();
-    //let mut estimator = LibmvEstimator::default();
-    //let mut estimator = AlmeidaEstimator::default();
-    let mut detector = BlockMotionDetection::default();
+    let mut state = pollster::block_on(RenderState::new(window, app.into()))?;
 
     let repaint_signal = Arc::new(GuiRepaintSignal(Mutex::new(event_loop.create_proxy())));
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
-            loop {
-                let target_time = Duration::from_secs_f64(interval * cnt as f64);
-                let curtime = start.elapsed();
-
-                let delta = curtime.saturating_sub(target_time).as_secs_f64();
-                let frames = (delta * rate).round() as usize;
-
-                if frames > 0 {
-                    let frame = if delta < 1.0 {
-                        Some((&mut rgba_frame, &mut rgba_width))
-                    } else {
-                        None
-                    };
-
-                    let break_out = frame.is_some();
-
-                    let skip_frames = 0; //frames - 1;
-
-                    motion_vectors.clear();
-
-                    if let Err(e) = c.process_frame(&mut motion_vectors, frame, skip_frames) {
-                        error!("{}", e);
-                        *control_flow = ControlFlow::Exit;
-                        return;
-                    }
-
-                    /*if let Err(e) = estimator.motion_step(
-                        &motion_vectors,
-                        &camera,
-                        Some(0.1),
-                        &mut rot,
-                        &mut pos,
-                    ) {
-                        println!("Failed to estimate motion: {}", e);
-                        continue;
-                    }*/
-
-                    //rot = Default::default();
-                    //pos = Default::default();
-
-                    //pos.x -= 0.1;
-                    //rot *= na::UnitQuaternion::from_euler_angles(0.0, 0.01, 0.0);
-
-                    //println!("{:?} | {:?}", rot, pos);
-
-                    /*let mut densify_mf = mf.new_densifier();
-
-                    for &(pos, motion) in &motion_vectors {
-                        densify_mf.add_vector(pos, motion);
-                    }
-
-                    if densify_mf.interpolate_empty_cells().is_err() {
-                        continue;
-                    }*/
-
-                    cnt += frames;
-
-                    contains_buf.clear();
-                    contains_buf.resize(mf.size(), 0.0);
-
-                    let (w, h) = mf.dim();
-                    /*if w > 0 && h > 0 {
-                        if cnt < 0 {
-                            fill_grid(&mut tracked_objs, &camera, rot, pos);
-                        }
-
-                        let view = calc_view(rot, pos);
-
-                        println!("{:?}", view);
-
-                        for (i, in_pos) in tracked_objs.iter_mut().enumerate() {
-                            //let in_pos = camera.project(*in_pos, view);
-                            let in_pos = camera.project(*in_pos, view);
-
-                            let pos = na::clamp(
-                                in_pos,
-                                na::Point2::new(0f32, 0f32),
-                                na::Point2::new(1f32, 1f32),
-                            );
-
-                            let (x, y) = (
-                                (pos.x * (w - 1) as f32).round() as usize,
-                                (pos.y * (h - 1) as f32).round() as usize,
-                            );
-                            contains_buf[x + y * w] += 1.0;
-                        }
-                    }*/
-
-                    if let Some(motion) = detector.detect_motion(motion_vectors.iter().copied()) {
-                        println!("Motion: {motion}");
-                    }
-
-                    if break_out {
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-
             state.update(&repaint_signal);
 
-            match state.render(
-                &mf,
-                rgba_frame.as_slice(),
-                rgba_width,
-                contains_buf.as_slice(),
-            ) {
+            match state.render() {
                 Ok(_) => {}
                 Err(RenderError::Surface(e)) => {
                     match e {
@@ -274,34 +124,6 @@ fn main() -> Result<()> {
                     },
                 ..
             } => *control_flow = ControlFlow::Exit,
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state: ElementState::Pressed,
-                        virtual_keycode: Some(VirtualKeyCode::Space),
-                        ..
-                    },
-                ..
-            } => {
-                rot = Default::default();
-                pos = Default::default();
-                //reset_grid(&mut tracked_objs, &camera, rot, pos),
-            }
-            WindowEvent::CursorMoved { position, .. } => {
-                mouse_pos = Some(na::Point2::new(
-                    position.x as f32 / state.size.width as f32,
-                    position.y as f32 / state.size.height as f32,
-                ))
-            }
-            WindowEvent::MouseInput {
-                state: ElementState::Pressed,
-                button: MouseButton::Left,
-                ..
-            } => {
-                if let Some(npos) = mouse_pos {
-                    tracked_objs.push(camera.unproject(npos, calc_view(rot, pos)));
-                }
-            }
             WindowEvent::Resized(physical_size) => {
                 state.resize(Some(*physical_size));
             }

@@ -30,3 +30,5 @@ epi = "0.17"
 egui-winit = "0.17"
 egui_wgpu_backend = "0.17"
 egui_demo_lib = "0.17"
+
+rfd = "0.8"

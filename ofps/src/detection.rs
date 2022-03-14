@@ -17,14 +17,17 @@ impl Default for BlockMotionDetection {
     fn default() -> Self {
         Self {
             min_size: 0.1,
-            subdivide: 4,
+            subdivide: 6,
             target_motion: 0.003,
         }
     }
 }
 
 impl BlockMotionDetection {
-    pub fn detect_motion(&self, motion: impl Iterator<Item = MotionEntry>) -> Option<usize> {
+    pub fn detect_motion(
+        &self,
+        motion: impl Iterator<Item = MotionEntry>,
+    ) -> Option<(usize, MotionField)> {
         // Calculate the motion field size, rounded up.
         let block_width = self.min_size.sqrt() / self.subdivide as f32;
         let block_dim = (1.0 / block_width).ceil() as usize;
@@ -43,11 +46,13 @@ impl BlockMotionDetection {
 
         // Flood fill compute the area of the biggest motion.
         let mut biggest_area = 0;
+        let mut biggest_area_mf = None;
 
         for y in 0..block_dim {
             for x in 0..block_dim {
                 if map[y][x] {
                     let mut area = 0;
+                    let mut mf2 = MotionField::new(block_dim, block_dim);
 
                     map[y][x] = false;
                     let mut to_fill = vec![(x, y); 1];
@@ -68,19 +73,23 @@ impl BlockMotionDetection {
                             .map(|(x, y)| (x as usize, y as usize))
                         {
                             if map[y][x] {
+                                mf2.set_motion(x, y, mf.get_motion(x, y));
                                 to_fill.push((x, y));
                                 map[y][x] = false;
                             }
                         }
                     }
 
-                    biggest_area = std::cmp::max(biggest_area, area);
+                    if area > biggest_area {
+                        biggest_area = area;
+                        biggest_area_mf = Some(mf2);
+                    }
                 }
             }
         }
 
         if biggest_area as f32 / (block_dim * block_dim) as f32 >= self.min_size {
-            Some(biggest_area)
+            biggest_area_mf.map(|mf| (biggest_area, mf))
         } else {
             None
         }

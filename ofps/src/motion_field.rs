@@ -48,6 +48,17 @@ impl MotionField {
         self.vf.as_slice()
     }
 
+    /// Set motion at given position.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - horizontal coordinate to set at.
+    /// * `y` - vertical coordinate to set at.
+    /// * `motion` - motion to set.
+    pub fn set_motion(&mut self, x: usize, y: usize, motion: Vector2<f32>) {
+        self.vf.set_column(self.width * y + x, &motion);
+    }
+
     /// Create a new densification structure.
     ///
     /// `MotionFieldDensifier` takes arbitrary amount of motion vectors and densifies them to a

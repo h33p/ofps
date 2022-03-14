@@ -35,18 +35,18 @@ pub struct GuiRenderState {
     render_pass: RenderPass,
     state: State,
     context: egui::Context,
-    app: egui_demo_lib::WrapApp,
+    app: Box<dyn App>,
 }
 
 impl GuiRenderState {
-    fn new(device: &Device, format: TextureFormat, window: &Window) -> Self {
+    fn new(device: &Device, format: TextureFormat, window: &Window, app: Box<dyn App>) -> Self {
         let size = window.inner_size();
 
         Self {
             render_pass: RenderPass::new(device, format, 1),
             state: State::new(4096, window),
             context: Default::default(),
-            app: Default::default(),
+            app,
         }
     }
 
@@ -128,7 +128,7 @@ impl RenderState {
     }
 
     // Creating some of the wgpu types requires async code
-    pub async fn new(window: Window) -> Result<Self> {
+    pub async fn new(window: Window, app: Box<impl App + 'static>) -> Result<Self> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -169,7 +169,7 @@ impl RenderState {
 
         surface.configure(&device, &config);
 
-        let gui_state = GuiRenderState::new(&device, surface_format, &window);
+        let gui_state = GuiRenderState::new(&device, surface_format, &window, app);
 
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -288,13 +288,7 @@ impl RenderState {
         self.gui_state.update(&self.window, repaint_signal.clone())
     }
 
-    pub fn render(
-        &mut self,
-        mfield: &MotionField,
-        video_frame: &[RGBA],
-        video_height: usize,
-        contains_buf: &[f32],
-    ) -> std::result::Result<(), RenderError> {
+    pub fn render(&mut self) -> std::result::Result<(), RenderError> {
         let output = self.surface.get_current_texture()?;
 
         let view = output
@@ -314,123 +308,15 @@ impl RenderState {
             &mut self.index_buffer,
         ) {
             (Some(vbuf), Some(vmbuf), Some(cbuf), Some(ibuf)) => Some((vbuf, vmbuf, cbuf, ibuf)),
-            (vbuf, vmbuf, cbuf, ibuf) if mfield.size() != 0 => {
-                let vertex_motion_buffer = self.device.create_buffer(&BufferDescriptor {
-                    label: Some("Vertex Motion Buffer"),
-                    size: (mfield.size() * std::mem::size_of::<[f32; 2]>()) as _,
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-
-                let contains_buffer = self.device.create_buffer(&BufferDescriptor {
-                    label: Some("Contains Buffer"),
-                    size: (mfield.size() * std::mem::size_of::<f32>()) as _,
-                    usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-
-                let (width, height) = mfield.dim();
-
-                let vertices = (0..height)
-                    .flat_map(|y| (0..width).map(move |x| (x, y)))
-                    .map(|(x, y)| {
-                        [
-                            // -1 is left and 1 is right
-                            (x as f32 / (width - 1) as f32) * 2.0 - 1.0,
-                            // 1 is up, and -1 is down
-                            1.0 - (y as f32 / (height - 1) as f32) * 2.0,
-                        ]
-                    })
-                    .enumerate()
-                    .map(|(_, a)| a)
-                    .collect::<Vec<_>>();
-
-                let vertex_buffer = self.device.create_buffer_init(&util::BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(vertices.as_slice()),
-                    usage: BufferUsages::VERTEX,
-                });
-
-                let vmap = |x, y| width as u32 * y + x;
-
-                let indices = (0..(height - 1))
-                    .flat_map(|y| (0..(width - 1)).map(move |x| (x, y)))
-                    .map(|(x, y)| (x as u32, y as u32))
-                    .flat_map(|(x, y)| {
-                        // Map a single square into 2 triangles
-                        [
-                            vmap(x, y),
-                            vmap(x, y + 1),
-                            vmap(x + 1, y),
-                            vmap(x + 1, y),
-                            vmap(x, y + 1),
-                            vmap(x + 1, y + 1),
-                        ]
-                    })
-                    .collect::<Vec<u32>>();
-
-                self.num_indices = indices.len() as u32;
-                println!("{} ({} {})", self.num_indices, width, height);
-
-                let index_buffer = self.device.create_buffer_init(&util::BufferInitDescriptor {
-                    label: Some("Index Buffer"),
-                    contents: bytemuck::cast_slice(indices.as_slice()),
-                    usage: BufferUsages::INDEX,
-                });
-
-                *vbuf = Some(vertex_buffer);
-                *vmbuf = Some(vertex_motion_buffer);
-                *cbuf = Some(contains_buffer);
-                *ibuf = Some(index_buffer);
-
-                Some((
-                    vbuf.as_mut().unwrap(),
-                    vmbuf.as_mut().unwrap(),
-                    cbuf.as_mut().unwrap(),
-                    ibuf.as_mut().unwrap(),
-                ))
-            }
             _ => None,
         };
 
-        if let Some((_, vmbuf, cbuf, _)) = &bufs {
+        /*if let Some((_, vmbuf, cbuf, _)) = &bufs {
             self.queue
                 .write_buffer(vmbuf, 0, bytemuck::cast_slice(mfield.as_slice()));
             self.queue
                 .write_buffer(cbuf, 0, bytemuck::cast_slice(contains_buf));
-        }
-
-        let (video_frame, video_height) = if video_frame.len() > 0 && video_height > 0 {
-            (video_frame, video_height)
-        } else {
-            (
-                &[RGBA {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 0,
-                }][..],
-                1,
-            )
-        };
-
-        self.texture = match self.texture.take() {
-            Some(texture) => Some(texture.update_texture(
-                &self.device,
-                &self.queue,
-                &self.texture_bind_group_layout,
-                video_frame,
-                video_height,
-            )?),
-            None => Some(Texture::from_rgba_frame(
-                &self.device,
-                &self.queue,
-                &self.texture_bind_group_layout,
-                Some("Video Frame"),
-                video_frame,
-                video_height,
-            )?),
-        };
+        }*/
 
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
