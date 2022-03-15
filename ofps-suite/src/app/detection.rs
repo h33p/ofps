@@ -1,12 +1,12 @@
-use super::{CreateDecoderUiState, CreatePluginUi, OfpsAppContext};
+use super::{CreateDecoderUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp};
 use egui::*;
-use epi::{App, Frame};
+use epi::Frame;
 use ofps::prelude::v1::*;
 use std::sync::{Arc, Mutex};
+use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 
 #[derive(Default)]
 pub struct MotionDetectionApp {
-    ctx: OfpsAppContext,
     create_decoder_state: CreateDecoderUiState,
     decoder: Option<Box<dyn Decoder>>,
     detector: BlockMotionDetection,
@@ -16,14 +16,16 @@ pub struct MotionDetectionApp {
     tex_handle: Option<TextureHandle>,
     mf: Option<MotionField>,
     overlay_mf: bool,
+    frames: usize,
+    motion_ranges: Vec<(usize, usize)>,
 }
 
-impl App for MotionDetectionApp {
+impl OfpsCtxApp for MotionDetectionApp {
     fn name(&self) -> &str {
         "Detection"
     }
 
-    fn update(&mut self, ctx: &Context, frame: &Frame) {
+    fn update(&mut self, ctx: &Context, ofps_ctx: &OfpsAppContext, frame: &Frame) {
         egui::SidePanel::left("detection_settings").show(ctx, |ui| {
             egui::trace!(ui);
 
@@ -49,6 +51,8 @@ impl App for MotionDetectionApp {
                     )
                     .ok();
 
+                self.frames += 1;
+
                 if !self.frame.is_empty() {
                     let image = ColorImage::from_rgba_unmultiplied(
                         [self.frame.len() / self.frame_height, self.frame_height],
@@ -71,6 +75,11 @@ impl App for MotionDetectionApp {
                     {
                         ui.label(format!("{} blocks", motion));
                         self.mf = Some(mf);
+
+                        match self.motion_ranges.last_mut() {
+                            Some((_, e)) if *e == self.frames => *e += 1,
+                            _ => self.motion_ranges.push((self.frames, self.frames + 1)),
+                        }
                     } else {
                         ui.label("None");
                         self.mf = None;
@@ -81,8 +90,6 @@ impl App for MotionDetectionApp {
                     ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
                 });
 
-                use widgets::plot::{Arrows, Plot, Value, Values};
-
                 ui.separator();
 
                 ui.label("Dominant motion:");
@@ -91,6 +98,11 @@ impl App for MotionDetectionApp {
                     .data_aspect(1.0)
                     .view_aspect(1.0)
                     .allow_drag(false)
+                    .allow_boxed_zoom(false)
+                    .center_x_axis(true)
+                    .center_y_axis(true)
+                    .show_x(false)
+                    .show_y(false)
                     .show(ui, |plot_ui| {
                         if let Some(mf) = &self.mf {
                             let values = mf
@@ -110,14 +122,18 @@ impl App for MotionDetectionApp {
 
                 if clicked_close {
                     self.decoder = None;
-                    self.frame.clear();
                 }
             } else {
                 ui.label("Open motion vectors");
 
+                self.frames = 0;
+                self.tex_handle = None;
+                self.motion_ranges.clear();
+                self.mf = None;
+
                 match <Box<dyn Decoder>>::create_plugin_ui(
                     ui,
-                    &self.ctx,
+                    ofps_ctx,
                     &mut self.create_decoder_state,
                 ) {
                     Some(Ok(decoder)) => self.decoder = Some(decoder),
@@ -126,6 +142,46 @@ impl App for MotionDetectionApp {
             }
 
             ui.separator();
+        });
+
+        egui::TopBottomPanel::bottom("detection_plot_window").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.monospace(format!("{:>6}", self.frames));
+                ui.separator();
+                Plot::new("motion_window")
+                    .include_x(20.0)
+                    .allow_drag(false)
+                    .allow_boxed_zoom(false)
+                    .show_x(false)
+                    .show_y(false)
+                    .min_size(Vec2::new(1.0, 1.0))
+                    .show_axes([true, false])
+                    .show(ui, |plot_ui| {
+                        plot_ui.bar_chart(
+                            BarChart::new(
+                                self.motion_ranges
+                                    .iter()
+                                    .copied()
+                                    .map(|(s, e)| {
+                                        let s = s as f64;
+                                        let e = e as f64;
+                                        Bar::new(s + (e - s) * 0.5, 2.0).width(e - s)
+                                    })
+                                    .collect(),
+                            )
+                            .color(Color32::LIGHT_GREEN),
+                        );
+                        plot_ui.bar_chart(
+                            BarChart::new(
+                                std::iter::once(
+                                    Bar::new(self.frames as f64 + 0.9995, 2.0).width(0.001),
+                                )
+                                .collect(),
+                            )
+                            .color(Color32::RED),
+                        );
+                    });
+            });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {

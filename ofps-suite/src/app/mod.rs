@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 
 mod detection;
 
-const APPS: &[fn() -> Box<dyn App>] = &[|| Box::new(detection::MotionDetectionApp::default())];
+const APPS: &[fn() -> Box<dyn OfpsCtxApp>] =
+    &[|| Box::new(detection::MotionDetectionApp::default())];
 
 pub struct OfpsAppContext {
     plugin_store: PluginStore,
@@ -137,8 +138,9 @@ pub trait CreatePluginUi: Sized {
 }
 
 pub struct OfpsApp {
-    apps: Vec<Box<dyn App>>,
+    apps: Vec<Box<dyn OfpsCtxApp>>,
     selected_app: usize,
+    ofps_ctx: OfpsAppContext,
 }
 
 impl Default for OfpsApp {
@@ -146,8 +148,14 @@ impl Default for OfpsApp {
         Self {
             apps: APPS.iter().map(|&create| create()).collect(),
             selected_app: 0,
+            ofps_ctx: OfpsAppContext::default(),
         }
     }
+}
+
+pub trait OfpsCtxApp {
+    fn name(&self) -> &str;
+    fn update(&mut self, ctx: &Context, ofps_ctx: &OfpsAppContext, frame: &Frame);
 }
 
 impl App for OfpsApp {
@@ -176,7 +184,7 @@ impl App for OfpsApp {
         });
 
         if let Some(app) = self.apps.get_mut(self.selected_app) {
-            app.update(ctx, frame);
+            app.update(ctx, &self.ofps_ctx, frame);
         }
     }
 }

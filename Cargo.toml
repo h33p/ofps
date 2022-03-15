@@ -7,7 +7,7 @@ resolver = "2"
 
 members = [
 	"ofps",
-	"motion-visualiser",
+	"ofps-suite",
 	"motion-loader",
 	"motion-extract",
 	"motion-analyser",
@@ -23,7 +23,7 @@ members = [
 
 default-members = [
 	"ofps",
-	"motion-visualiser",
+	"ofps-suite",
 	"motion-loader",
 	"motion-extract",
 	"motion-analyser",
