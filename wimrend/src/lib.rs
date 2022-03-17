@@ -15,6 +15,7 @@ use nalgebra as na;
 pub mod material;
 pub mod mesh;
 pub mod mesh_manager;
+mod multisampler;
 pub mod render_pipeline_manager;
 pub mod render_state;
 pub mod texture;
@@ -145,6 +146,11 @@ impl UniformObject {
         self.data.proj.copy_from_slice(mat.as_slice());
     }
 
+    /// Get screen resolution.
+    pub fn resolution(&self) -> [f32; 2] {
+        [self.data.resolution[0], self.data.resolution[1]]
+    }
+
     fn update_internal(&mut self, screen: &SurfaceConfiguration) {
         self.data.resolution[0] = screen.width as f32;
         self.data.resolution[1] = screen.height as f32;
@@ -179,8 +185,10 @@ impl Renderer {
     ///
     /// * `device` - device to render to.
     /// * `surface_format` - format of all textures.
-    pub fn new(device: Arc<Device>, surface_format: TextureFormat) -> Self {
-        let mut pipeline_manager = RenderPipelineManager::new(device.clone(), surface_format);
+    pub fn new(device: Arc<Device>, surface_format: TextureFormat, msaa_samples: u32) -> Self {
+        let mut pipeline_manager =
+            RenderPipelineManager::new(device.clone(), surface_format, msaa_samples);
+
         Self {
             mesh_manager: MeshManager::new(device.clone()),
             camera: UniformObject::new(&mut pipeline_manager),

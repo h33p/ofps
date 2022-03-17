@@ -6,6 +6,7 @@ use std::sync::Arc;
 use wgpu::*;
 use winit::{event::*, window::Window};
 
+use super::multisampler::Multisampler;
 use super::texture::RawTexture;
 use super::Renderer;
 
@@ -22,6 +23,7 @@ pub struct RenderState<T> {
     sub_state: T,
     depth_texture: RawTexture,
     renderer: Renderer,
+    multisampler: Option<Multisampler>,
 }
 
 impl<T: RenderSubState> RenderState<T> {
@@ -74,9 +76,24 @@ impl<T: RenderSubState> RenderState<T> {
 
         surface.configure(&device, &config);
 
-        let sub_state = T::create(&device, surface_format, &window, sub_state_data);
-        let renderer = Renderer::new(device.clone(), surface_format);
-        let depth_texture = RawTexture::create_depth_texture(&device, &config, "depth_texture");
+        let msaa_samples = 4;
+
+        let sub_state = T::create(
+            &device,
+            surface_format,
+            &window,
+            msaa_samples,
+            sub_state_data,
+        );
+        let renderer = Renderer::new(device.clone(), surface_format, msaa_samples);
+        let depth_texture =
+            RawTexture::create_depth_texture(&device, &config, "depth_texture", msaa_samples);
+
+        let multisampler = if msaa_samples <= 1 {
+            None
+        } else {
+            Some(Multisampler::new(surface_format, msaa_samples))
+        };
 
         Ok(Self {
             surface,
@@ -88,6 +105,7 @@ impl<T: RenderSubState> RenderState<T> {
             depth_texture,
             sub_state,
             renderer,
+            multisampler,
         })
     }
 
@@ -105,8 +123,15 @@ impl<T: RenderSubState> RenderState<T> {
             self.config.height = new_size.height;
             trace!("Resize {} {}", new_size.width, new_size.height);
             self.surface.configure(&self.device, &self.config);
-            self.depth_texture =
-                RawTexture::create_depth_texture(&self.device, &self.config, "depth_texture");
+            self.depth_texture = RawTexture::create_depth_texture(
+                &self.device,
+                &self.config,
+                "depth_texture",
+                self.multisampler
+                    .as_ref()
+                    .map(Multisampler::sample_count)
+                    .unwrap_or(1),
+            );
         }
     }
 
@@ -123,6 +148,9 @@ impl<T: RenderSubState> RenderState<T> {
 
     /// Frame (pre-render) update.
     pub fn update(&mut self) {
+        // Update screen resolution passed to shaders.
+        self.renderer.uniform_mut().update_internal(&self.config);
+
         self.sub_state.update(&self.window, &mut self.renderer)
     }
 
@@ -135,14 +163,19 @@ impl<T: RenderSubState> RenderState<T> {
             .texture
             .create_view(&TextureViewDescriptor::default());
 
-        // Update screen resolution passed to shaders.
-        self.renderer.uniform_mut().update_internal(&self.config);
-
         // Load any new meshes onto GPU.
         self.renderer.mesh_manager.apply_changes();
 
         // Load all object information onto GPU.
         self.renderer.update_buffers(&self.queue);
+
+        // Use multisampled texture, if it is enabled.
+        let (view, resolve_target) = if let Some(msaa) = &mut self.multisampler {
+            let new_view = msaa.target(&self.device, &self.config);
+            (new_view, Some(&view))
+        } else {
+            (&view, None)
+        };
 
         // Begin draw commands.
         let mut encoder = self
@@ -156,7 +189,7 @@ impl<T: RenderSubState> RenderState<T> {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color {
@@ -172,7 +205,7 @@ impl<T: RenderSubState> RenderState<T> {
                     view: &self.depth_texture.view,
                     depth_ops: Some(Operations {
                         load: LoadOp::Clear(1.0),
-                        store: true,
+                        store: false,
                     }),
                     stencil_ops: None,
                 }),
@@ -185,12 +218,28 @@ impl<T: RenderSubState> RenderState<T> {
         // We could draw them all in one go, but egui does not expect to have depth images.
         self.sub_state.render(
             &mut encoder,
-            &view,
+            view,
             &self.config,
             &self.device,
             &self.window,
             &self.queue,
         )?;
+
+        // Resolve MSAA. We do it here, because, the substate can only have one view.
+        if resolve_target.is_some() {
+            let _ = encoder.begin_render_pass(&RenderPassDescriptor {
+                label: Some("Resolve Pass"),
+                color_attachments: &[RenderPassColorAttachment {
+                    view,
+                    resolve_target,
+                    ops: Operations {
+                        load: LoadOp::Load,
+                        store: false,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+        }
 
         // Submit all commands.
         self.queue.submit(std::iter::once(encoder.finish()));
@@ -242,6 +291,7 @@ pub trait RenderSubState {
         device: &Arc<Device>,
         surface_format: TextureFormat,
         window: &Window,
+        msaa_samples: u32,
         init_data: Self::InitData,
     ) -> Self;
 

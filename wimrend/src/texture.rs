@@ -25,6 +25,7 @@ impl RawTexture {
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         label: &'static str,
+        sample_count: u32,
     ) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
@@ -35,7 +36,7 @@ impl RawTexture {
             label: Some(label),
             size,
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count,
             dimension: wgpu::TextureDimension::D2,
             format: Self::DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
@@ -62,6 +63,60 @@ impl RawTexture {
             sampler,
             label: Some(label),
             dimensions: (config.width, config.height),
+        }
+    }
+
+    /// Create a uninitialised texture.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - Device to create the texture on.
+    /// * `label` - Optional label to identify the texture.
+    /// * `dimensions` - Width and height of the texture.
+    /// * `sample_count` - MSAA samples.
+    /// * `format` - Texture format.
+    /// * `usage` - Texture usage.
+    pub fn create_custom(
+        device: &wgpu::Device,
+        label: Option<&'static str>,
+        dimensions: (u32, u32),
+        sample_count: u32,
+        format: wgpu::TextureFormat,
+        usage: wgpu::TextureUsages,
+    ) -> Self {
+        let size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+        });
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        Self {
+            texture,
+            view,
+            sampler,
+            label,
+            dimensions,
         }
     }
 
@@ -92,20 +147,19 @@ impl RawTexture {
             depth_or_array_layers: 1,
         };
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
+        let ret = Self::create_custom(
+            device,
             label,
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        });
+            dimensions,
+            1,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        );
 
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 aspect: wgpu::TextureAspect::All,
-                texture: &texture,
+                texture: &ret.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
             },
@@ -118,24 +172,7 @@ impl RawTexture {
             size,
         );
 
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        Ok(Self {
-            texture,
-            view,
-            sampler,
-            label,
-            dimensions,
-        })
+        Ok(ret)
     }
 }
 

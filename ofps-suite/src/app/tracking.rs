@@ -10,7 +10,7 @@ use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::material::Material;
 use wimrend::mesh::Mesh;
 use wimrend::texture::Texture;
-use wimrend::Renderer;
+use wimrend::{Renderer, UniformObject};
 
 pub struct EstimatorState {
     scale_factor: f32,
@@ -43,6 +43,39 @@ pub struct MotionTrackingApp {
     frame_height: usize,
     frames: usize,
     cube_material: Option<Arc<Material>>,
+    camera_controller: CameraController,
+}
+
+pub struct CameraController {
+    fov_y: f32,
+    focus_point: na::Point3<f32>,
+    rot: na::UnitQuaternion<f32>,
+    dist: f32,
+}
+
+impl Default for CameraController {
+    fn default() -> Self {
+        Self {
+            fov_y: 90.0,
+            focus_point: Default::default(),
+            rot: na::UnitQuaternion::identity(),
+            dist: 5.0,
+        }
+    }
+}
+
+impl CameraController {
+    fn on_render(&self, uniform: &mut UniformObject) {
+        let dir = self.rot * na::matrix![0.0; -1.0; 0.0];
+        let res = uniform.resolution();
+        let aspect = res[0] / res[1];
+
+        uniform.update_projection(
+            StandardCamera::new(self.fov_y * aspect, self.fov_y).as_matrix(),
+            self.focus_point + dir * self.dist,
+            self.rot,
+        );
+    }
 }
 
 impl MotionTrackingApp {
@@ -73,40 +106,35 @@ impl MotionTrackingApp {
         }
     }
 
-    fn render(&mut self, render_list: &mut Renderer) {
+    fn render(&mut self, renderer: &mut Renderer) {
         let cube_material = if let Some(cube_material) = self.cube_material.clone() {
             cube_material
         } else {
-            let cube_material = Arc::new(Material::unlit(render_list.pipeline_manager_mut()));
+            let cube_material = Arc::new(Material::unlit(renderer.pipeline_manager_mut()));
             self.cube_material = Some(cube_material.clone());
             cube_material
         };
 
-        render_list.uniform_mut().update_projection(
-            StandardCamera::new(90.0, 45.0).as_matrix(),
-            Default::default(),
-            na::UnitQuaternion::identity(),
-        );
+        self.camera_controller.on_render(renderer.uniform_mut());
 
-        render_list.line(
-            na::matrix![0.0; 4.0; 0.0].into(),
-            na::matrix![6.0; 6.0; 4.0].into(),
-            4.0,
-            na::matrix![1.0; 0.0; 0.0; 1.0],
-        );
+        let start = na::matrix![0.0; 0.0; 0.0].into();
 
-        render_list.obj(
+        let end = na::matrix![6.0; 2.0; 4.0].into();
+
+        renderer.line(start, end, 4.0, na::matrix![1.0; 0.0; 0.0; 1.0]);
+
+        renderer.obj(
             Mesh::cube(),
-            na::matrix![0.0; 4.0; 0.0].into(),
+            start,
             na::UnitQuaternion::identity(),
             na::matrix![1.0; 1.0; 1.0],
             na::matrix![1.0; 1.0; 0.0; 1.0],
             cube_material.clone(),
         );
 
-        render_list.obj(
+        renderer.obj(
             Mesh::cube(),
-            na::matrix![6.0; 6.0; 4.0].into(),
+            end,
             na::UnitQuaternion::identity(),
             na::matrix![1.0; 1.0; 1.0],
             na::matrix![1.0; 1.0; 0.0; 1.0],
@@ -125,10 +153,13 @@ impl OfpsCtxApp for MotionTrackingApp {
         ctx: &Context,
         ofps_ctx: &OfpsAppContext,
         frame: &Frame,
-        render_list: &mut Renderer,
+        renderer: &mut Renderer,
     ) {
         self.tracking_step();
-        self.render(render_list);
+
+        self.camera_controller.rot *= na::UnitQuaternion::from_euler_angles(0.0, 0.0, 0.005);
+
+        self.render(renderer);
 
         egui::SidePanel::left("tracking_settings").show(ctx, |ui| {
             egui::trace!(ui);

@@ -34,10 +34,11 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
         device: &Arc<Device>,
         format: TextureFormat,
         window: &Window,
+        msaa_samples: u32,
         (app, repaint_signal): (T, Arc<GlobalRepaintSignal>),
     ) -> Self {
         Self {
-            render_pass: RenderPass::new(device, format, 1),
+            render_pass: RenderPass::new(device, format, msaa_samples),
             state: State::new(4096, window),
             context: Default::default(),
             app,

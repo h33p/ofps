@@ -25,6 +25,7 @@ pub struct RenderPipelineManager {
     uniform_bind_group_layout: BindGroupLayout,
     pipelines: HashMap<RenderPipelineInfo, Arc<RenderPipeline>>,
     surface_format: TextureFormat,
+    msaa_samples: u32,
 }
 
 impl RenderPipelineManager {
@@ -34,7 +35,8 @@ impl RenderPipelineManager {
     ///
     /// * `device` - WGPU device to use.
     /// * `surface_format` - Texture surface format for textured pipelines.
-    pub fn new(device: Arc<Device>, surface_format: TextureFormat) -> Self {
+    /// * `msaa_samples` - Number of MSAA samples to use. Set to 1 to have no anti-aliasing.
+    pub fn new(device: Arc<Device>, surface_format: TextureFormat, msaa_samples: u32) -> Self {
         // Bind a texture and its sampler to fragment shader.
         let texture_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -81,6 +83,7 @@ impl RenderPipelineManager {
             uniform_bind_group_layout,
             surface_format,
             pipelines: Default::default(),
+            msaa_samples,
         }
     }
 
@@ -112,6 +115,7 @@ impl RenderPipelineManager {
             pipelines,
             device,
             surface_format,
+            msaa_samples,
         } = self;
 
         pipelines
@@ -177,9 +181,8 @@ impl RenderPipelineManager {
                             bias: DepthBiasState::default(),
                         }),
                         multisample: MultisampleState {
-                            count: 1,
-                            mask: !0,
-                            alpha_to_coverage_enabled: false,
+                            count: *msaa_samples,
+                            ..Default::default()
                         },
                         multiview: None,
                     })
