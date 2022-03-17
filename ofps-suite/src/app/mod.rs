@@ -1,12 +1,17 @@
+use crate::egui_app::EguiApp;
 use egui::*;
-use epi::{App, Frame};
+use epi::Frame;
 use ofps::prelude::v1::*;
 use std::sync::{Arc, Mutex};
+use wimrend::Renderer;
 
 mod detection;
+mod tracking;
 
-const APPS: &[fn() -> Box<dyn OfpsCtxApp>] =
-    &[|| Box::new(detection::MotionDetectionApp::default())];
+const APPS: &[fn() -> Box<dyn OfpsCtxApp>] = &[
+    || Box::new(detection::MotionDetectionApp::default()),
+    || Box::new(tracking::MotionTrackingApp::default()),
+];
 
 pub struct OfpsAppContext {
     plugin_store: PluginStore,
@@ -25,6 +30,27 @@ pub struct CreatePluginState<T> {
     selected_plugin: usize,
     arg: Arc<Mutex<String>>,
     extra: T,
+}
+
+impl CreatePluginUi for Box<dyn Estimator> {
+    type Extra = ();
+
+    fn available_plugins(ctx: &OfpsAppContext) -> Vec<String> {
+        ctx.plugin_store.available_estimators()
+    }
+
+    fn create_plugin(ctx: &OfpsAppContext, plugin: &str, arg: String) -> Result<Self> {
+        ctx.plugin_store.create_estimator(plugin, arg)
+    }
+
+    fn arg_ui(ui: &mut Ui, ctx: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
+        ui.label("Arguments:");
+
+        let mut guard = state.arg.lock().unwrap();
+        ui.add(TextEdit::singleline(&mut *guard));
+
+        ui.end_row();
+    }
 }
 
 impl CreatePluginUi for Box<dyn Decoder> {
@@ -84,6 +110,7 @@ impl CreatePluginUi for Box<dyn Decoder> {
 }
 
 pub type CreateDecoderUiState = CreatePluginState<<Box<dyn Decoder> as CreatePluginUi>::Extra>;
+pub type CreateEstimatorUiState = CreatePluginState<<Box<dyn Estimator> as CreatePluginUi>::Extra>;
 
 pub trait CreatePluginUi: Sized {
     type Extra;
@@ -96,8 +123,10 @@ pub trait CreatePluginUi: Sized {
         ui: &mut Ui,
         ctx: &OfpsAppContext,
         state: &mut CreatePluginState<Self::Extra>,
+        id: usize,
+        extra_ui: impl FnOnce(&mut Ui),
     ) -> Option<Result<Self>> {
-        Grid::new("create_plugin")
+        Grid::new(format!("create_plugin_{id}"))
             .show(ui, |ui| {
                 let plugins = Self::available_plugins(ctx);
 
@@ -106,7 +135,7 @@ pub trait CreatePluginUi: Sized {
                 }
 
                 ui.label("Plugin to use:");
-                ComboBox::from_id_source("plugin_select")
+                ComboBox::from_id_source(format!("plugin_select_{id}"))
                     .selected_text(
                         if let Some(target_plugin) = plugins.get(state.selected_plugin) {
                             target_plugin.clone()
@@ -123,7 +152,8 @@ pub trait CreatePluginUi: Sized {
 
                 Self::arg_ui(ui, ctx, state);
 
-                if ui.button("Create").clicked() && state.selected_plugin < plugins.len() {
+                let ret = if ui.button("Create").clicked() && state.selected_plugin < plugins.len()
+                {
                     Some(Self::create_plugin(
                         ctx,
                         &plugins[state.selected_plugin],
@@ -131,7 +161,11 @@ pub trait CreatePluginUi: Sized {
                     ))
                 } else {
                     None
-                }
+                };
+
+                extra_ui(ui);
+
+                ret
             })
             .inner
     }
@@ -155,15 +189,21 @@ impl Default for OfpsApp {
 
 pub trait OfpsCtxApp {
     fn name(&self) -> &str;
-    fn update(&mut self, ctx: &Context, ofps_ctx: &OfpsAppContext, frame: &Frame);
+    fn update(
+        &mut self,
+        ctx: &Context,
+        ofps_ctx: &OfpsAppContext,
+        frame: &Frame,
+        render_list: &mut Renderer,
+    );
 }
 
-impl App for OfpsApp {
+impl EguiApp for OfpsApp {
     fn name(&self) -> &str {
         "OFPS Suite"
     }
 
-    fn update(&mut self, ctx: &Context, frame: &Frame) {
+    fn update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer) {
         TopBottomPanel::top("ofps_app_top_bar").show(ctx, |ui| {
             egui::trace!(ui);
 
@@ -184,7 +224,7 @@ impl App for OfpsApp {
         });
 
         if let Some(app) = self.apps.get_mut(self.selected_app) {
-            app.update(ctx, &self.ofps_ctx, frame);
+            app.update(ctx, &self.ofps_ctx, frame, render_list);
         }
     }
 }

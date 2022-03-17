@@ -1,0 +1,16 @@
+[package]
+name = "wimrend"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4"
+nalgebra = "0.30"
+image = "0.24"
+winit = "0.26"
+wgpu = "0.12"
+bytemuck = { version = "1", features = [ "derive" ] }
+anyhow = { version = "1", features = ["std"] }
+once_cell = "1"

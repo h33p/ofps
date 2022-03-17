@@ -19,6 +19,7 @@ members = [
 	"almeida-estimator",
 	"libmv-estimator",
 	"multiview-estimator",
+	"wimrend",
 ]
 
 default-members = [
@@ -34,5 +35,6 @@ default-members = [
 	"almeida-estimator",
 	"libmv-estimator",
 	"multiview-estimator",
+	"wimrend",
 ]
 

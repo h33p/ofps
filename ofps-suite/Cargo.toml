@@ -11,13 +11,13 @@ terminal_size = "0.1"
 env_logger = "0.9"
 log = "0.4"
 nalgebra = "0.30"
+anyhow = { version = "1", features = ["std"] }
+wimrend = { version = "0.1", path = "../wimrend" }
+pollster = "0.2"
 
 # wgpu dependencies
-image = "0.24"
 winit = "0.26"
-cgmath = "0.18"
 wgpu = "0.12"
-pollster = "0.2"
 bytemuck = { version = "1", features = [ "derive" ] }
 
 # egui

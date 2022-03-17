@@ -4,6 +4,7 @@ use epi::Frame;
 use ofps::prelude::v1::*;
 use std::sync::{Arc, Mutex};
 use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
+use wimrend::Renderer;
 
 #[derive(Default)]
 pub struct MotionDetectionApp {
@@ -25,7 +26,13 @@ impl OfpsCtxApp for MotionDetectionApp {
         "Detection"
     }
 
-    fn update(&mut self, ctx: &Context, ofps_ctx: &OfpsAppContext, frame: &Frame) {
+    fn update(
+        &mut self,
+        ctx: &Context,
+        ofps_ctx: &OfpsAppContext,
+        frame: &Frame,
+        _render_list: &mut Renderer,
+    ) {
         egui::SidePanel::left("detection_settings").show(ctx, |ui| {
             egui::trace!(ui);
 
@@ -43,15 +50,16 @@ impl OfpsCtxApp for MotionDetectionApp {
                 self.frame.clear();
                 self.frame_height = 0;
 
-                decoder
+                if decoder
                     .process_frame(
                         &mut self.motion_vectors,
                         Some((&mut self.frame, &mut self.frame_height)),
                         0,
                     )
-                    .ok();
-
-                self.frames += 1;
+                    .is_ok()
+                {
+                    self.frames += 1;
+                }
 
                 if !self.frame.is_empty() {
                     let image = ColorImage::from_rgba_unmultiplied(
@@ -66,7 +74,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                     }
                 }
 
-                Grid::new("show_motion").show(ui, |ui| {
+                Grid::new("motion_settings").show(ui, |ui| {
                     ui.label("Motion:");
 
                     if let Some((motion, mf)) = self
@@ -84,6 +92,24 @@ impl OfpsCtxApp for MotionDetectionApp {
                         ui.label("None");
                         self.mf = None;
                     }
+
+                    ui.end_row();
+
+                    ui.label("Min size:");
+
+                    ui.add(Slider::new(&mut self.detector.min_size, 0.01..=1.0));
+
+                    ui.end_row();
+
+                    ui.label("Subdivisions:");
+
+                    ui.add(Slider::new(&mut self.detector.subdivide, 1..=16));
+
+                    ui.end_row();
+
+                    ui.label("Min magnitude:");
+
+                    ui.add(Slider::new(&mut self.detector.target_motion, 0.0001..=0.01));
 
                     ui.end_row();
 
@@ -135,6 +161,8 @@ impl OfpsCtxApp for MotionDetectionApp {
                     ui,
                     ofps_ctx,
                     &mut self.create_decoder_state,
+                    0,
+                    |_| {},
                 ) {
                     Some(Ok(decoder)) => self.decoder = Some(decoder),
                     _ => {}
@@ -149,7 +177,15 @@ impl OfpsCtxApp for MotionDetectionApp {
                 ui.monospace(format!("{:>6}", self.frames));
                 ui.separator();
                 Plot::new("motion_window")
-                    .include_x(20.0)
+                    .include_x(0.0)
+                    .include_x(
+                        self.motion_ranges
+                            .last()
+                            .map(|&(_, e)| e as f64)
+                            .unwrap_or(0.0)
+                            .max(20.0),
+                    )
+                    .center_y_axis(true)
                     .allow_drag(false)
                     .allow_boxed_zoom(false)
                     .show_x(false)
@@ -162,10 +198,13 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 self.motion_ranges
                                     .iter()
                                     .copied()
-                                    .map(|(s, e)| {
+                                    .flat_map(|(s, e)| {
                                         let s = s as f64;
                                         let e = e as f64;
-                                        Bar::new(s + (e - s) * 0.5, 2.0).width(e - s)
+                                        [
+                                            Bar::new(s + (e - s) * 0.5, 2.0).width(e - s),
+                                            Bar::new(s + (e - s) * 0.5, -2.0).width(e - s),
+                                        ]
                                     })
                                     .collect(),
                             )
@@ -173,9 +212,10 @@ impl OfpsCtxApp for MotionDetectionApp {
                         );
                         plot_ui.bar_chart(
                             BarChart::new(
-                                std::iter::once(
+                                IntoIterator::into_iter([
                                     Bar::new(self.frames as f64 + 0.9995, 2.0).width(0.001),
-                                )
+                                    Bar::new(self.frames as f64 + 0.9995, -2.0).width(0.001),
+                                ])
                                 .collect(),
                             )
                             .color(Color32::RED),

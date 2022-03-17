@@ -8,9 +8,9 @@ use nalgebra as na;
 /// This detector splits up each frame to blocks that are of area `min_size / (subdivide ^ 2)` and
 /// checks average motion within each block to be at least of `target_motion` magnitude.
 pub struct BlockMotionDetection {
-    min_size: f32,
-    subdivide: usize,
-    target_motion: f32,
+    pub min_size: f32,
+    pub subdivide: usize,
+    pub target_motion: f32,
 }
 
 impl Default for BlockMotionDetection {

@@ -1,8 +1,6 @@
 use log::*;
-use nalgebra as na;
 use ofps::prelude::v1::*;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 use winit::{
     event::*,
@@ -11,10 +9,11 @@ use winit::{
 };
 
 mod app;
-mod renderer;
-mod texture;
+mod egui_app;
 
-use renderer::{GuiEvent, GuiRepaintSignal, RenderError, RenderState};
+use egui_app::{EguiRenderState, GlobalEvent, GlobalRepaintSignal};
+use wgpu::SurfaceError;
+use wimrend::render_state::{RenderState, RenderSubState};
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -31,29 +30,33 @@ fn main() -> Result<()> {
 
     let app = app::OfpsApp::default();
 
-    let mut state = pollster::block_on(RenderState::new(window, app.into()))?;
+    let repaint_signal = Arc::new(GlobalRepaintSignal(Mutex::new(event_loop.create_proxy())));
 
-    let repaint_signal = Arc::new(GuiRepaintSignal(Mutex::new(event_loop.create_proxy())));
+    let mut state = pollster::block_on(EguiRenderState::create_state(
+        window,
+        (app, repaint_signal.clone()),
+    ))?;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
-            state.update(&repaint_signal);
+            state.update();
 
             match state.render() {
                 Ok(_) => {}
-                Err(RenderError::Surface(e)) => {
-                    match e {
-                        // Reconfigure the surface if lost
-                        wgpu::SurfaceError::Lost => state.resize(None),
-                        // The system is out of memory, we should probably quit
-                        wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
-                        // All other errors (Outdated, Timeout) should be resolved by the next frame
-                        e => eprintln!("{:?}", e),
+                Err(e) => {
+                    if let Some(e) = e.downcast_ref::<SurfaceError>() {
+                        match e {
+                            // Reconfigure the surface if lost
+                            wgpu::SurfaceError::Lost => state.resize(None),
+                            // The system is out of memory, we should probably quit
+                            wgpu::SurfaceError::OutOfMemory => *control_flow = ControlFlow::Exit,
+                            // All other errors (Outdated, Timeout) should be resolved by the next frame
+                            e => eprintln!("{:?}", e),
+                        }
+                    } else {
+                        error!("{}", e);
+                        *control_flow = ControlFlow::Exit
                     }
-                }
-                Err(RenderError::Other(e)) => {
-                    error!("{}", e);
-                    *control_flow = ControlFlow::Exit
                 }
             }
         }
@@ -80,7 +83,7 @@ fn main() -> Result<()> {
             }
             _ => {}
         },
-        Event::MainEventsCleared | Event::UserEvent(GuiEvent::RequestRedraw) => {
+        Event::MainEventsCleared | Event::UserEvent(GlobalEvent::RequestRedraw) => {
             // RedrawRequested will only trigger once, unless we manually
             // request it.
             state.window.request_redraw();
