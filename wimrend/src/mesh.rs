@@ -14,6 +14,7 @@ pub struct Mesh {
 }
 
 static QUAD: OnceCell<Arc<Mesh>> = OnceCell::new();
+static CENTERED_QUAD: OnceCell<Arc<Mesh>> = OnceCell::new();
 static CUBE: OnceCell<Arc<Mesh>> = OnceCell::new();
 static HEXAGON: OnceCell<Arc<Mesh>> = OnceCell::new();
 
@@ -51,6 +52,23 @@ impl Mesh {
         .clone()
     }
 
+    /// Get a 2 triangle square.
+    pub fn centered_quad() -> Arc<Mesh> {
+        CENTERED_QUAD
+            .get_or_init(|| {
+                Self::from_parts(
+                    [
+                        ([-0.5, -0.5, 0.0], [0.0, 0.0]),
+                        ([-0.5, 0.5, 0.0], [0.0, 1.0]),
+                        ([0.5, -0.5, 0.0], [1.0, 0.0]),
+                        ([0.5, 0.5, 0.0], [1.0, 1.0]),
+                    ],
+                    [0, 1, 2, 1, 3, 2],
+                )
+                .into()
+            })
+            .clone()
+    }
     /// Get a centered 3D cube.
     pub fn cube() -> Arc<Mesh> {
         CUBE.get_or_init(|| {

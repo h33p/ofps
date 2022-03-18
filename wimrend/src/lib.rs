@@ -27,6 +27,8 @@ use mesh_manager::{MeshDescriptor, MeshManager};
 use render_pipeline_manager::RenderPipelineManager;
 use texture::Texture;
 
+use anyhow::Result;
+
 /// Arc for when hashing the underlying object is too costly.
 ///
 /// This arc essentially compares and hashes the pointer of the object as opposed to the object
@@ -163,6 +165,7 @@ impl UniformObject {
 
 pub struct Renderer {
     device: Arc<Device>,
+    queue: Arc<Queue>,
     pipeline_manager: RenderPipelineManager,
     mesh_manager: MeshManager,
     obj_count: usize,
@@ -184,8 +187,14 @@ impl Renderer {
     /// # Arguments
     ///
     /// * `device` - device to render to.
+    /// * `queue` - queue of write operations.
     /// * `surface_format` - format of all textures.
-    pub fn new(device: Arc<Device>, surface_format: TextureFormat, msaa_samples: u32) -> Self {
+    pub fn new(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        surface_format: TextureFormat,
+        msaa_samples: u32,
+    ) -> Self {
         let mut pipeline_manager =
             RenderPipelineManager::new(device.clone(), surface_format, msaa_samples);
 
@@ -195,6 +204,7 @@ impl Renderer {
             line_material: Material::line(&mut pipeline_manager).into(),
             pipeline_manager,
             device,
+            queue,
             obj_count: 0,
             objects: Default::default(),
             instance_buffer: None,
@@ -207,12 +217,8 @@ impl Renderer {
     }
 
     /// Update all buffers before rendering.
-    ///
-    /// # Arguments
-    ///
-    /// * `queue` - queue of write operations.
-    pub fn update_buffers(&mut self, queue: &Queue) {
-        self.camera.update_buffers(queue);
+    pub fn update_buffers(&mut self) {
+        self.camera.update_buffers(&self.queue);
 
         if self.instance_buffer.as_ref().map(|(s, _)| *s).unwrap_or(0) < self.obj_count {
             let buffer = self.device.create_buffer(&BufferDescriptor {
@@ -232,7 +238,7 @@ impl Renderer {
                 .values()
                 .flat_map(|m| m.values().flat_map(|m| m.values().flat_map(|m| m.iter())))
             {
-                offset = o.write_buffer(buf, offset, queue);
+                offset = o.write_buffer(buf, offset, &self.queue);
             }
         }
     }
@@ -289,6 +295,31 @@ impl Renderer {
     /// This manager needs to be passed upon creating materials.
     pub fn pipeline_manager_mut(&mut self) -> &mut RenderPipelineManager {
         &mut self.pipeline_manager
+    }
+
+    /// Create a texture from RGBA image.
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - Device to create the texture on.
+    /// * `queue` - Command queue to write the texture through.
+    /// * `label` - Optional identification label.
+    /// * `rgba` - Image data.
+    /// * `height` - Height of the texture.
+    pub fn texture_from_rgba(
+        &self,
+        label: Option<&'static str>,
+        rgba: &[u8],
+        height: usize,
+    ) -> Result<Texture> {
+        Texture::from_rgba_frame(
+            &self.device,
+            &self.queue,
+            self.pipeline_manager.texture_bind_group_layout(),
+            label,
+            rgba,
+            height,
+        )
     }
 
     /// Draw an object in scene.

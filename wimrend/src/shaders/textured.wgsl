@@ -50,6 +50,6 @@ fn vs_main(
 
 [[stage(fragment)]]
 fn fs_main(in: VertexOutput) -> [[location(0)]] vec4<f32> {
-	var sample = textureSample(t_diffuse, s_diffuse, in.tex_coords) * 0.5;
+	var sample = textureSample(t_diffuse, s_diffuse, in.tex_coords);
 	return in.colour * sample;
 }

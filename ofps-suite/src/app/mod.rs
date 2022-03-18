@@ -7,6 +7,7 @@ use wimrend::Renderer;
 
 mod detection;
 mod tracking;
+mod utils;
 
 const APPS: &[fn() -> Box<dyn OfpsCtxApp>] = &[
     || Box::new(detection::MotionDetectionApp::default()),

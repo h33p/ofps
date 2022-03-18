@@ -41,12 +41,11 @@ fn vs_main(
 	var start = uniform_buf.proj * instance.proj1;
 	var end = uniform_buf.proj * instance.proj2;
 	var dir = normalize(end - start);
-	var cross_dir = cross(vec3<f32>(0.0, 0.0, 1.0), dir.xyz);
+	var cross_dir = vec2<f32>(-dir.y, dir.x);
 	var res = vec2<f32>(1.0) / uniform_buf.res;
-	//var res = vec2<f32>(1.0) / vec2<f32>(1280.0, 720.0);
 	var thickness = instance.proj3.xx * res;
 	var pos_base = start + (end - start) * model.position.y;
-	out.clip_position = pos_base + vec4<f32>(cross_dir * vec3<f32>(thickness, 0.0), 0.0) * ((model.position.x - 0.5) * pos_base.w);
+	out.clip_position = pos_base + vec4<f32>(cross_dir * thickness, 0.0, 0.0) * ((model.position.x - 0.5) * pos_base.w);
 
 	out.colour = model.colour * instance.colour;
 	out.tex_coords = model.uv;

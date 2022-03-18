@@ -16,7 +16,7 @@ pub struct RenderState<T> {
     device: Arc<Device>,
     /// Window being drawn to.
     pub window: Window,
-    queue: Queue,
+    queue: Arc<Queue>,
     config: SurfaceConfiguration,
     /// Size of the window.
     pub size: winit::dpi::PhysicalSize<u32>,
@@ -61,6 +61,7 @@ impl<T: RenderSubState> RenderState<T> {
             .await?;
 
         let device = Arc::new(device);
+        let queue = Arc::new(queue);
 
         let surface_format = surface
             .get_preferred_format(&adapter)
@@ -85,7 +86,7 @@ impl<T: RenderSubState> RenderState<T> {
             msaa_samples,
             sub_state_data,
         );
-        let renderer = Renderer::new(device.clone(), surface_format, msaa_samples);
+        let renderer = Renderer::new(device.clone(), queue.clone(), surface_format, msaa_samples);
         let depth_texture =
             RawTexture::create_depth_texture(&device, &config, "depth_texture", msaa_samples);
 
@@ -167,7 +168,7 @@ impl<T: RenderSubState> RenderState<T> {
         self.renderer.mesh_manager.apply_changes();
 
         // Load all object information onto GPU.
-        self.renderer.update_buffers(&self.queue);
+        self.renderer.update_buffers();
 
         // Use multisampled texture, if it is enabled.
         let (view, resolve_target) = if let Some(msaa) = &mut self.multisampler {

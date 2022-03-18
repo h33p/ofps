@@ -1,3 +1,4 @@
+use super::utils::camera_controller::CameraController;
 use super::{
     CreateDecoderUiState, CreateEstimatorUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp,
 };
@@ -10,33 +11,119 @@ use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::material::Material;
 use wimrend::mesh::Mesh;
 use wimrend::texture::Texture;
-use wimrend::{Renderer, UniformObject};
+use wimrend::Renderer;
 
-pub struct EstimatorState {
+pub struct EstimatorSettings {
     scale_factor: f32,
-    poses: Vec<(na::Vector3<f32>, na::UnitQuaternion<f32>)>,
+    camera_offset: f32,
     layer_frames: bool,
-    layered_frames: Vec<Arc<Texture>>,
+    layer_angle_delta: f32,
+    keep_frames: usize,
 }
 
-impl Default for EstimatorState {
+impl Default for EstimatorSettings {
     fn default() -> Self {
         Self {
-            scale_factor: 0.0,
-            poses: vec![],
-            layer_frames: false,
-            layered_frames: vec![],
+            scale_factor: 1.0,
+            camera_offset: 1.0,
+            layer_frames: true,
+            layer_angle_delta: 0.5,
+            keep_frames: 100,
         }
     }
 }
 
 #[derive(Default)]
+pub struct EstimatorState {
+    poses: Vec<(na::Point3<f32>, na::UnitQuaternion<f32>)>,
+    layered_frames: Vec<(usize, Arc<Material>)>,
+}
+
+impl EstimatorState {
+    fn apply_pose(
+        &self,
+        tr: na::Vector3<f32>,
+        rot: na::UnitQuaternion<f32>,
+    ) -> (na::Point3<f32>, na::UnitQuaternion<f32>) {
+        let (pos, old_rot) = self.poses.last().copied().unwrap_or_default();
+        (pos + old_rot * tr, rot * old_rot)
+    }
+
+    fn layer_frame(
+        &self,
+        pos: na::Point3<f32>,
+        rot: na::UnitQuaternion<f32>,
+        settings: &EstimatorSettings,
+    ) -> bool {
+        settings.layer_frames && {
+            self.layered_frames
+                .last()
+                .map(|(f, _)| {
+                    let (op, or) = self.poses[*f];
+                    (op - pos).magnitude() > 0.1
+                        || rot.angle_to(&or) > settings.layer_angle_delta.to_radians()
+                })
+                .unwrap_or(true)
+        }
+    }
+
+    fn push_pose(
+        &mut self,
+        pos: na::Point3<f32>,
+        rot: na::UnitQuaternion<f32>,
+        frame: Option<Arc<Material>>,
+    ) {
+        let idx = self.poses.len();
+        self.poses.push((pos, rot));
+        if let Some(mat) = frame {
+            self.layered_frames.push((idx, mat));
+        }
+    }
+
+    fn layered_frames(
+        &self,
+    ) -> impl Iterator<Item = (na::Point3<f32>, na::UnitQuaternion<f32>, Arc<Material>)> + '_ {
+        self.layered_frames
+            .iter()
+            .cloned()
+            .map(move |(i, mat)| (self.poses[i].0, self.poses[i].1, mat))
+    }
+
+    fn remove_least_significant_frame(&mut self) {
+        let (frame, _) = self
+            .layered_frames
+            .iter()
+            .enumerate()
+            .map(|(i, s)| (i, self.poses[s.0].1))
+            .fold(None, |candidate, (frame, rot)| {
+                let dist = self
+                    .layered_frames
+                    .iter()
+                    .map(|s| self.poses[s.0].1.angle_to(&rot))
+                    .sum::<f32>();
+
+                if let Some((frame, cur_dist)) = candidate {
+                    if dist >= cur_dist {
+                        return Some((frame, cur_dist));
+                    }
+                }
+
+                Some((frame, dist))
+            })
+            .unwrap_or_default();
+
+        self.layered_frames.remove(frame);
+    }
+}
+
 pub struct MotionTrackingApp {
     create_decoder_state: CreateDecoderUiState,
     decoder: Option<Box<dyn Decoder>>,
+    decoder_camera: StandardCamera,
     estimators: Vec<(
         CreateEstimatorUiState,
         Option<(Box<dyn Estimator>, EstimatorState)>,
+        EstimatorSettings,
     )>,
     motion_vectors: Vec<MotionEntry>,
     frame: Vec<RGBA>,
@@ -46,156 +133,25 @@ pub struct MotionTrackingApp {
     camera_controller: CameraController,
 }
 
-enum InMotion {
-    None,
-    Orbit(Pos2, na::UnitQuaternion<f32>),
-    Pan(Pos2, na::Point3<f32>),
-}
-
-impl InMotion {
-    fn has_motion(&self) -> bool {
-        matches!(self, InMotion::None)
-    }
-}
-
-pub struct CameraController {
-    fov_y: f32,
-    focus_point: na::Point3<f32>,
-    rot: na::UnitQuaternion<f32>,
-    dist: f32,
-    in_motion: InMotion,
-    scroll_sensitivity: f32,
-    orbit_sensitivity: f32,
-    move_material: Option<Arc<Material>>,
-}
-
-impl Default for CameraController {
+impl Default for MotionTrackingApp {
     fn default() -> Self {
         Self {
-            fov_y: 90.0,
-            focus_point: Default::default(),
-            rot: na::UnitQuaternion::identity(),
-            dist: 5.0,
-            in_motion: InMotion::None,
-            scroll_sensitivity: 0.002,
-            orbit_sensitivity: 0.01,
-            move_material: None,
-        }
-    }
-}
-
-impl CameraController {
-    fn update(&mut self, ctx: &Context) {
-        if self.in_motion.has_motion() || !(ctx.wants_pointer_input() || ctx.wants_keyboard_input())
-        {
-            let input = ctx.input();
-
-            self.dist =
-                (self.dist * (1.0 - input.scroll_delta.y * self.scroll_sensitivity)).max(0.1);
-
-            if let Some((pointer, true)) = input
-                .pointer
-                .interact_pos()
-                .map(|p| (p, input.pointer.primary_down()))
-            {
-                let pan_key = input.modifiers.shift;
-
-                match self.in_motion {
-                    InMotion::None => {
-                        if pan_key {
-                            self.in_motion = InMotion::Pan(pointer, self.focus_point);
-                        } else {
-                            self.in_motion = InMotion::Orbit(pointer, self.rot);
-                        }
-                    }
-                    InMotion::Orbit(pointer_start, start_rot) => {
-                        let delta = pointer - pointer_start;
-
-                        // Use euler angles to never have any rolling rotation.
-                        let (x, _, z) = start_rot.euler_angles();
-
-                        self.rot = na::UnitQuaternion::from_euler_angles(
-                            x - delta.y * self.orbit_sensitivity,
-                            0.0,
-                            z - delta.x * self.orbit_sensitivity,
-                        );
-
-                        if pan_key {
-                            self.in_motion = InMotion::Pan(pointer, self.focus_point);
-                        }
-                    }
-                    InMotion::Pan(pointer_start, start_pos) => {
-                        let delta = pointer - pointer_start;
-                        let screen_size =
-                            Vec2::new(input.screen_rect.width(), input.screen_rect.height());
-                        let delta = delta / screen_size;
-                        let aspect = screen_size.x / screen_size.y;
-                        let fov = self.fov_y.to_radians() / 2.0;
-
-                        // A little bit geometry to move the pan the camera in a pixel perfect way.
-                        let move_delta = na::matrix![
-                            -fov.tan() * delta.x * aspect;
-                            0.0;
-                            fov.tan() * delta.y
-                        ] * (self.dist * 2.0);
-
-                        self.focus_point = start_pos + self.rot * move_delta;
-
-                        if !pan_key {
-                            self.in_motion = InMotion::Orbit(pointer, self.rot);
-                        }
-                    }
-                }
-            } else {
-                self.in_motion = InMotion::None;
-            }
-        }
-    }
-
-    fn on_render(&mut self, renderer: &mut Renderer) {
-        // Initialise the indicator material if it hasn't already been.
-        let move_material = if let Some(move_material) = self.move_material.clone() {
-            move_material
-        } else {
-            let move_material = Arc::new(Material::unlit(renderer.pipeline_manager_mut()));
-            self.move_material = Some(move_material.clone());
-            move_material
-        };
-
-        let uniform = renderer.uniform_mut();
-
-        let dir = self.rot * na::matrix![0.0; -1.0; 0.0];
-        let res = uniform.resolution();
-        let aspect = res[0] / res[1];
-
-        uniform.update_projection(
-            StandardCamera::new(self.fov_y * aspect, self.fov_y).as_matrix(),
-            self.focus_point + dir * self.dist,
-            self.rot,
-        );
-
-        let scale = na::matrix![1.0; 1.0; 1.0] * 0.2;
-        let colour = na::matrix![0.7; 0.5; 0.0; 0.5];
-
-        if let Some(pos) = match self.in_motion {
-            InMotion::Orbit(_, _) => Some(self.focus_point),
-            InMotion::Pan(_, pos) => Some(pos),
-            _ => None,
-        } {
-            renderer.obj(
-                Mesh::cube(),
-                pos,
-                na::UnitQuaternion::identity(),
-                scale,
-                colour,
-                move_material.clone(),
-            );
+            create_decoder_state: Default::default(),
+            decoder: None,
+            decoder_camera: StandardCamera::new(39.6, 39.6 * 9.0 / 16.0),
+            estimators: vec![],
+            motion_vectors: vec![],
+            frame: vec![],
+            frame_height: 0,
+            frames: 0,
+            cube_material: None,
+            camera_controller: Default::default(),
         }
     }
 }
 
 impl MotionTrackingApp {
-    fn tracking_step(&mut self) {
+    fn tracking_step(&mut self, renderer: &mut Renderer) {
         if let Some(decoder) = &mut self.decoder {
             self.motion_vectors.clear();
 
@@ -211,12 +167,63 @@ impl MotionTrackingApp {
                 .ok();
 
             self.frames += 1;
+
+            let mut mat = None;
+
+            for ((estimator, estimator_state), settings) in self
+                .estimators
+                .iter_mut()
+                .filter_map(|(_, s, settings)| s.as_mut().zip(Some(settings)))
+            {
+                if let Ok((rot, tr)) =
+                    estimator.estimate(&self.motion_vectors, &self.decoder_camera, None)
+                {
+                    if !settings.layer_frames {
+                        estimator_state.layered_frames.clear();
+                    }
+
+                    let (pos, rot) = estimator_state.apply_pose(tr, rot);
+                    let mat = if estimator_state.layer_frame(pos, rot, settings) {
+                        if mat.is_none() && self.frame_height > 0 {
+                            if let Ok(texture) = renderer.texture_from_rgba(
+                                None,
+                                bytemuck::cast_slice(&self.frame),
+                                self.frame_height,
+                            ) {
+                                mat = Some(
+                                    Material::textured(
+                                        renderer.pipeline_manager_mut(),
+                                        texture.into(),
+                                    )
+                                    .into(),
+                                )
+                            }
+                        }
+
+                        mat.as_ref()
+                    } else {
+                        None
+                    };
+
+                    let mut cnt = 0;
+                    while estimator_state.layered_frames.len() > settings.keep_frames && cnt < 20 {
+                        estimator_state.remove_least_significant_frame();
+                        cnt += 1;
+                    }
+
+                    estimator_state.push_pose(pos, rot, mat.cloned());
+                }
+            }
         } else {
             self.frames = 0;
             self.frame.clear();
             self.frame_height = 0;
 
-            for (_, state) in self.estimators.iter_mut().filter_map(|(_, v)| v.as_mut()) {
+            for (_, state) in self
+                .estimators
+                .iter_mut()
+                .filter_map(|(_, v, _)| v.as_mut())
+            {
                 *state = Default::default();
             }
         }
@@ -239,23 +246,55 @@ impl MotionTrackingApp {
 
         renderer.line(start, end, 4.0, na::matrix![1.0; 0.0; 0.0; 1.0]);
 
-        renderer.obj(
-            Mesh::cube(),
-            start,
-            na::UnitQuaternion::identity(),
-            na::matrix![1.0; 1.0; 1.0],
-            na::matrix![1.0; 1.0; 0.0; 1.0],
-            cube_material.clone(),
-        );
+        let range = 10isize;
 
-        renderer.obj(
-            Mesh::cube(),
-            end,
-            na::UnitQuaternion::identity(),
-            na::matrix![1.0; 1.0; 1.0],
-            na::matrix![1.0; 1.0; 0.0; 1.0],
-            cube_material.clone(),
-        );
+        let line_colour = na::matrix![0.1; 0.1; 0.1; 1.0];
+        let line_thickness = 2.0;
+
+        for v in -range..=range {
+            let v = v as f32;
+            let range = range as f32;
+            renderer.line(
+                na::matrix![v; -range; 0.0].into(),
+                na::matrix![v; range; 0.0].into(),
+                line_thickness,
+                line_colour,
+            );
+            renderer.line(
+                na::matrix![-range; v; 0.0].into(),
+                na::matrix![range; v; 0.0].into(),
+                line_thickness,
+                line_colour,
+            );
+        }
+
+        let (offset_factor, x_scale) = {
+            let intrinsics = self.decoder_camera.intrinsics();
+            (
+                intrinsics[(1, 1)] * 0.5,
+                intrinsics[(1, 1)] / intrinsics[(0, 0)],
+            )
+        };
+
+        for ((_, state), settings) in self
+            .estimators
+            .iter()
+            .filter_map(|(_, v, s)| v.as_ref().zip(Some(s)))
+        {
+            let scale = settings.camera_offset / offset_factor;
+
+            for (pos, rot, mat) in state.layered_frames() {
+                renderer.obj(
+                    Mesh::centered_quad(),
+                    (pos * settings.scale_factor)
+                        + rot * na::matrix![0.0; settings.camera_offset; 0.0],
+                    rot * na::UnitQuaternion::from_euler_angles(-90.0f32.to_radians(), 0.0, 0.0),
+                    na::matrix![x_scale * scale; scale; 1.0],
+                    na::matrix![1.0; 1.0; 1.0; 1.0],
+                    mat,
+                );
+            }
+        }
     }
 }
 
@@ -271,7 +310,7 @@ impl OfpsCtxApp for MotionTrackingApp {
         frame: &Frame,
         renderer: &mut Renderer,
     ) {
-        self.tracking_step();
+        self.tracking_step(renderer);
         self.camera_controller.update(ctx);
 
         self.render(renderer);
@@ -314,11 +353,34 @@ impl OfpsCtxApp for MotionTrackingApp {
 
             let mut to_remove = None;
 
-            for (i, (state, estimator)) in self.estimators.iter_mut().enumerate() {
-                if estimator.is_some() {
-                    Grid::new(format!("estimator_ui_{i}")).show(ui, |ui| {
-                        ui.label(format!("Estimator #{}", i));
-                        ui.end_row();
+            for (i, (state, estimator, settings)) in self.estimators.iter_mut().enumerate() {
+                Grid::new(format!("estimator_ui_{i}")).show(ui, |ui| {
+                    ui.label(format!("Estimator #{}", i));
+                    ui.end_row();
+
+                    ui.checkbox(&mut settings.layer_frames, "Draw frames");
+                    ui.end_row();
+                    ui.label("Angle delta");
+                    ui.add(
+                        Slider::new(&mut settings.layer_angle_delta, 0.01..=90.0)
+                            .step_by(0.01)
+                            .logarithmic(true),
+                    );
+                    ui.end_row();
+
+                    ui.label("Keep frames");
+                    ui.add(Slider::new(&mut settings.keep_frames, 1..=1000));
+                    ui.end_row();
+
+                    ui.label("Position scale");
+                    ui.add(Slider::new(&mut settings.scale_factor, 0.00..=10.0));
+                    ui.end_row();
+
+                    ui.label("Frame offset");
+                    ui.add(Slider::new(&mut settings.camera_offset, 0.00..=100.0).step_by(0.01));
+                    ui.end_row();
+
+                    if estimator.is_some() {
                         if ui.button("Stop").clicked() {
                             *estimator = None;
                         }
@@ -326,7 +388,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                             to_remove = Some(i);
                         }
                         ui.end_row();
-                    });
+                    }
+                });
+                if estimator.is_some() {
                 } else {
                     match <Box<dyn Estimator>>::create_plugin_ui(ui, ofps_ctx, state, i + 1, |ui| {
                         if ui.button("Remove").clicked() {
