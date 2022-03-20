@@ -1,19 +1,37 @@
 use super::utils::camera_controller::CameraController;
 use super::{
-    CreateDecoderUiState, CreateEstimatorUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp,
+    ConfigState, CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig,
+    CreateEstimatorUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp,
 };
 use egui::*;
 use epi::Frame;
 use nalgebra as na;
 use ofps::prelude::v1::*;
-use std::sync::{atomic::Ordering, Arc};
+use serde::{Deserialize, Serialize};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use wimrend::material::Material;
 use wimrend::mesh::Mesh;
 use wimrend::Renderer;
 
 mod worker;
 
-use worker::{FrameState, TrackingSettings, TrackingState, TrackingWorker};
+use worker::{EstimatorSettings, FrameState, TrackingSettings, TrackingState, TrackingWorker};
+
+#[derive(Serialize, Deserialize)]
+pub struct MotionTrackingConfig {
+    decoder: (CreateDecoderUiConfig, bool),
+    draw_grid: bool,
+    view_fov: f32,
+    view_focus_point: (f32, f32, f32),
+    view_rot: (f32, f32, f32),
+    view_dist: f32,
+    estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
+    camera_fov_x: f32,
+    camera_fov_y: f32,
+}
 
 pub struct MotionTrackingApp {
     create_decoder_state: CreateDecoderUiState,
@@ -22,6 +40,7 @@ pub struct MotionTrackingApp {
     estimator_uis: Vec<CreateEstimatorUiState>,
     camera_controller: CameraController,
     draw_grid: bool,
+    config_state: ConfigState,
 }
 
 impl Default for MotionTrackingApp {
@@ -33,6 +52,7 @@ impl Default for MotionTrackingApp {
             estimator_uis: vec![],
             camera_controller: Default::default(),
             draw_grid: true,
+            config_state: Default::default(),
         }
     }
 }
@@ -137,11 +157,111 @@ impl MotionTrackingApp {
             }
         }
     }
+
+    fn load_cfg(
+        &mut self,
+        ofps_ctx: &OfpsAppContext,
+        MotionTrackingConfig {
+            decoder,
+            draw_grid,
+            view_fov,
+            view_focus_point,
+            view_rot,
+            view_dist,
+            estimators,
+            camera_fov_x,
+            camera_fov_y,
+        }: MotionTrackingConfig,
+    ) {
+        self.draw_grid = draw_grid;
+        self.camera_controller.fov_y = view_fov;
+        self.camera_controller.focus_point =
+            na::Vector3::new(view_focus_point.0, view_focus_point.1, view_focus_point.2).into();
+        self.camera_controller.rot =
+            na::UnitQuaternion::from_euler_angles(view_rot.0, view_rot.1, view_rot.2);
+        self.camera_controller.dist = view_dist;
+
+        self.create_decoder_state.config = decoder.0;
+
+        self.app_settings.camera = StandardCamera::new(camera_fov_x, camera_fov_y);
+        self.app_settings.settings.clear();
+
+        for (cfg, loaded, settings) in estimators {
+            let mut ui = CreateEstimatorUiState::default();
+            ui.config = cfg;
+
+            let plugin = if loaded {
+                match EstimatorPlugin::do_create(ofps_ctx, &mut ui) {
+                    Ok(estimator) => Some(estimator),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+
+            self.estimator_uis.push(ui);
+
+            let loaded = Arc::from(AtomicBool::new(plugin.is_some()));
+
+            self.app_settings
+                .settings
+                .push((Arc::from(Mutex::new(plugin)), loaded, settings))
+        }
+
+        self.app_state = if decoder.1 {
+            match DecoderPlugin::do_create(ofps_ctx, &mut self.create_decoder_state) {
+                Ok(decoder) => Some(TrackingState::worker(decoder, self.app_settings.clone())),
+                _ => None,
+            }
+        } else {
+            None
+        };
+    }
+
+    fn save_cfg(&self) -> MotionTrackingConfig {
+        let (camera_fov_x, camera_fov_y) = self.app_settings.camera.fov();
+
+        MotionTrackingConfig {
+            decoder: (
+                self.create_decoder_state.config.clone(),
+                self.app_state.is_some(),
+            ),
+            draw_grid: self.draw_grid,
+            view_fov: self.camera_controller.fov_y,
+            view_focus_point: {
+                let p = self.camera_controller.focus_point;
+                (p.x, p.y, p.z)
+            },
+            view_rot: self.camera_controller.rot.euler_angles(),
+            view_dist: self.camera_controller.dist,
+            estimators: self
+                .estimator_uis
+                .iter()
+                .map(|ui| ui.config.clone())
+                .zip(self.app_settings.settings.iter())
+                .map(|(cfg, (_, loaded, settings))| {
+                    (cfg, loaded.load(Ordering::Relaxed), *settings)
+                })
+                .collect(),
+            camera_fov_x,
+            camera_fov_y,
+        }
+    }
 }
 
 impl OfpsCtxApp for MotionTrackingApp {
     fn name(&self) -> &str {
         "Tracking"
+    }
+
+    fn late_update(
+        &mut self,
+        ctx: &Context,
+        ofps_ctx: &Arc<OfpsAppContext>,
+        frame: &Frame,
+        renderer: &mut Renderer,
+    ) {
+        self.camera_controller.update(ctx);
     }
 
     fn update(
@@ -152,16 +272,22 @@ impl OfpsCtxApp for MotionTrackingApp {
         renderer: &mut Renderer,
     ) {
         self.tracking_step(renderer);
-        self.camera_controller.update(ctx);
 
         self.render(renderer);
 
         egui::SidePanel::left("tracking_settings").show(ctx, |ui| {
             egui::trace!(ui);
 
-            ui.vertical_centered(|ui| {
-                ui.heading("Tracking");
-            });
+            let mut config_state = std::mem::take(&mut self.config_state);
+            config_state.run(
+                ui,
+                "Tracking",
+                Self::load_cfg,
+                Self::save_cfg,
+                self,
+                ofps_ctx,
+            );
+            self.config_state = config_state;
 
             ui.separator();
 

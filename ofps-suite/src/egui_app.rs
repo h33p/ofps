@@ -16,6 +16,7 @@ use wimrend::Renderer;
 pub trait EguiApp {
     fn name(&self) -> &str;
     fn update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer);
+    fn late_update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer);
 }
 
 /// GUI part of the render state.
@@ -68,6 +69,7 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
         });
 
         self.app.update(&self.context, &frame, renderer);
+        self.app.late_update(&self.context, &frame, renderer);
     }
 
     fn render(

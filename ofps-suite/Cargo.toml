@@ -14,6 +14,9 @@ nalgebra = "0.30"
 anyhow = { version = "1", features = ["std"] }
 wimrend = { version = "0.1", path = "../wimrend" }
 pollster = "0.2"
+rfd = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # wgpu dependencies
 winit = "0.26"
@@ -26,4 +29,3 @@ epi = "0.17"
 egui-winit = "0.17"
 egui_wgpu_backend = "0.17"
 
-rfd = "0.8"

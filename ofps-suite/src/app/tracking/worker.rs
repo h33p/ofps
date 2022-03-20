@@ -1,6 +1,7 @@
 use super::super::utils::worker::{AppWorker, Workable};
 use nalgebra as na;
 use ofps::prelude::v1::*;
+use serde::{Deserialize, Serialize};
 use std::sync::{
     atomic::AtomicBool,
     mpsc::{self, Receiver, Sender},
@@ -8,7 +9,7 @@ use std::sync::{
 };
 use wimrend::material::Material;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct EstimatorSettings {
     pub scale_factor: f32,
     pub camera_offset: f32,

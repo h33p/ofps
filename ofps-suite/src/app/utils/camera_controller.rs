@@ -25,6 +25,8 @@ pub struct CameraController {
     pub scroll_sensitivity: f32,
     pub orbit_sensitivity: f32,
     move_material: Option<Arc<Material>>,
+    last_down: bool,
+    pressed: bool,
 }
 
 impl Default for CameraController {
@@ -42,6 +44,8 @@ impl Default for CameraController {
             scroll_sensitivity: 0.002,
             orbit_sensitivity: 0.01,
             move_material: None,
+            last_down: false,
+            pressed: false,
         }
     }
 }
@@ -50,16 +54,17 @@ impl CameraController {
     pub fn update(&mut self, ctx: &Context) {
         if self.in_motion.has_motion() || !(ctx.wants_pointer_input() || ctx.wants_keyboard_input())
         {
+            let over_area = ctx.is_pointer_over_area();
             let input = ctx.input();
 
             self.dist =
                 (self.dist * (1.0 - input.scroll_delta.y * self.scroll_sensitivity)).max(0.1);
 
-            if let Some((pointer, true)) = input
-                .pointer
-                .interact_pos()
-                .map(|p| (p, input.pointer.primary_down()))
-            {
+            let pressed = input.pointer.primary_down();
+            self.pressed = pressed && (self.pressed || (!self.last_down && !over_area));
+            self.last_down = pressed;
+
+            if let Some((pointer, true)) = input.pointer.interact_pos().map(|p| (p, self.pressed)) {
                 let pan_key = input.modifiers.shift;
 
                 match self.in_motion {
@@ -136,14 +141,17 @@ impl CameraController {
             self.rot,
         );
 
-        let scale = na::matrix![1.0; 1.0; 1.0] * 0.2;
+        let scale = na::matrix![1.0; 1.0; 1.0] * 0.1 * self.dist;
         let colour = na::matrix![0.7; 0.5; 0.0; 0.5];
 
-        if let Some(pos) = match self.in_motion {
-            InMotion::Orbit(_, _) => Some(self.focus_point),
-            InMotion::Pan(_, pos) => Some(pos),
-            _ => None,
-        } {
+        for pos in match self.in_motion {
+            InMotion::Orbit(_, _) => [Some(self.focus_point), None],
+            InMotion::Pan(_, pos) => [Some(self.focus_point), Some(pos)],
+            _ => [None, None],
+        }
+        .iter()
+        .filter_map(|v| *v)
+        {
             renderer.obj(
                 Mesh::cube(),
                 pos,

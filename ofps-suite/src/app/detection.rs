@@ -1,11 +1,22 @@
 use super::utils::worker::{AppWorker, Workable};
-use super::{CreateDecoderUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp};
+use super::{
+    ConfigState, CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, OfpsAppContext,
+    OfpsCtxApp,
+};
 use egui::*;
 use epi::Frame;
 use ofps::prelude::v1::*;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::Renderer;
+
+#[derive(Serialize, Deserialize)]
+pub struct MotionDetectionConfig {
+    decoder: (CreateDecoderUiConfig, bool),
+    settings: MotionDetectionSettings,
+    overlay_mf: bool,
+}
 
 struct MotionDetectionState {
     decoder: DecoderPlugin,
@@ -29,12 +40,8 @@ impl MotionDetectionState {
         }
     }
 
-    pub fn worker(decoder: DecoderPlugin) -> AppWorker<Self> {
-        AppWorker::new(
-            Self::new(decoder),
-            Default::default(),
-            MotionDetectionState::update,
-        )
+    pub fn worker(decoder: DecoderPlugin, settings: MotionDetectionSettings) -> AppWorker<Self> {
+        AppWorker::new(Self::new(decoder), settings, MotionDetectionState::update)
     }
 
     fn update(&mut self, out: &mut MotionDetectionOutput, settings: MotionDetectionSettings) {
@@ -76,7 +83,7 @@ impl MotionDetectionState {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 struct MotionDetectionSettings {
     min_size: f32,
     subdivide: usize,
@@ -109,6 +116,46 @@ pub struct MotionDetectionApp {
     app_state: Option<AppWorker<MotionDetectionState>>,
     tex_handle: Option<TextureHandle>,
     overlay_mf: bool,
+    settings: MotionDetectionSettings,
+    config_state: ConfigState,
+}
+
+impl MotionDetectionApp {
+    fn load_cfg(
+        &mut self,
+        ofps_ctx: &OfpsAppContext,
+        MotionDetectionConfig {
+            decoder,
+            settings,
+            overlay_mf,
+        }: MotionDetectionConfig,
+    ) {
+        self.overlay_mf = overlay_mf;
+        self.settings = settings;
+        self.create_decoder_state.config = decoder.0;
+
+        self.app_state = None;
+
+        if decoder.1 {
+            match DecoderPlugin::do_create(ofps_ctx, &mut self.create_decoder_state) {
+                Ok(decoder) => {
+                    self.app_state = Some(MotionDetectionState::worker(decoder, self.settings))
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn save_cfg(&self) -> MotionDetectionConfig {
+        MotionDetectionConfig {
+            decoder: (
+                self.create_decoder_state.config.clone(),
+                self.app_state.is_some(),
+            ),
+            settings: self.settings,
+            overlay_mf: self.overlay_mf,
+        }
+    }
 }
 
 impl OfpsCtxApp for MotionDetectionApp {
@@ -126,105 +173,113 @@ impl OfpsCtxApp for MotionDetectionApp {
         egui::SidePanel::left("detection_settings").show(ctx, |ui| {
             egui::trace!(ui);
 
-            ui.vertical_centered(|ui| {
-                ui.heading("Detection");
+            let mut config_state = std::mem::take(&mut self.config_state);
+            config_state.run(
+                ui,
+                "Detection",
+                Self::load_cfg,
+                Self::save_cfg,
+                self,
+                ofps_ctx,
+            );
+            self.config_state = config_state;
+
+            ui.separator();
+
+            Grid::new("motion_settings").show(ui, |ui| {
+                ui.label("Min size:");
+
+                ui.add(Slider::new(&mut self.settings.min_size, 0.01..=1.0));
+
+                ui.end_row();
+
+                ui.label("Subdivisions:");
+
+                ui.add(Slider::new(&mut self.settings.subdivide, 1..=16));
+
+                ui.end_row();
+
+                ui.label("Min magnitude:");
+
+                ui.add(Slider::new(&mut self.settings.target_motion, 0.0001..=0.01));
+
+                ui.end_row();
+
+                ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
             });
 
             ui.separator();
 
-            let overlay_mf = &mut self.overlay_mf;
-            let app_state = &self.app_state;
-            let mut app_state_lock = app_state.as_ref().map(|s| s.read());
+            if let Some(app_state) = &self.app_state {
+                let _ = app_state.settings().map(|mut s| *s = self.settings);
 
-            if let Some(Ok(state)) = &mut app_state_lock {
-                let clicked_close = ui.button("Close").clicked();
+                let mut app_state_lock = app_state.read();
 
-                if !state.frame.is_empty() {
-                    let image = ColorImage::from_rgba_unmultiplied(
-                        [state.frame.len() / state.frame_height, state.frame_height],
-                        bytemuck::cast_slice(&*state.frame),
-                    );
+                if let Ok(state) = &mut app_state_lock {
+                    if !state.frame.is_empty() {
+                        let image = ColorImage::from_rgba_unmultiplied(
+                            [state.frame.len() / state.frame_height, state.frame_height],
+                            bytemuck::cast_slice(&*state.frame),
+                        );
 
-                    if let Some(th) = self.tex_handle.as_mut() {
-                        th.set(image);
-                    } else {
-                        self.tex_handle = Some(ui.ctx().load_texture("detector-frame", image));
-                    }
-                }
-
-                Grid::new("motion_settings").show(ui, |ui| {
-                    ui.label("Motion:");
-
-                    if let Some((motion, _)) = &state.motion {
-                        ui.label(format!("{} blocks", motion));
-                    } else {
-                        ui.label("None");
+                        if let Some(th) = self.tex_handle.as_mut() {
+                            th.set(image);
+                        } else {
+                            self.tex_handle = Some(ui.ctx().load_texture("detector-frame", image));
+                        }
                     }
 
-                    ui.end_row();
+                    let clicked_close = ui.button("Close").clicked();
 
-                    if let Some(Ok(mut settings)) = app_state.as_ref().map(|s| s.settings()) {
-                        ui.label("Min size:");
+                    Grid::new("motion_info").show(ui, |ui| {
+                        ui.label("Motion:");
 
-                        ui.add(Slider::new(&mut settings.min_size, 0.01..=1.0));
-
-                        ui.end_row();
-
-                        ui.label("Subdivisions:");
-
-                        ui.add(Slider::new(&mut settings.subdivide, 1..=16));
-
-                        ui.end_row();
-
-                        ui.label("Min magnitude:");
-
-                        ui.add(Slider::new(&mut settings.target_motion, 0.0001..=0.01));
-
-                        ui.end_row();
-                    }
-
-                    ui.checkbox(overlay_mf, "Overlay Motion");
-                });
-
-                ui.separator();
-
-                ui.label("Dominant motion:");
-
-                Plot::new("dominant_motion")
-                    .data_aspect(1.0)
-                    .view_aspect(1.0)
-                    .allow_drag(false)
-                    .allow_boxed_zoom(false)
-                    .center_x_axis(true)
-                    .center_y_axis(true)
-                    .show_x(false)
-                    .show_y(false)
-                    .show(ui, |plot_ui| {
-                        if let Some((_, mf)) = &state.motion {
-                            let values = mf
-                                .motion_iter()
-                                .filter(|(_, motion)| motion.magnitude() > 0.0)
-                                .map(|(_, motion)| motion * 10.0)
-                                .map(|motion| Value::new(motion.x, -motion.y))
-                                .collect::<Vec<_>>();
-
-                            let arrows = Arrows::new(
-                                Values::from_values(vec![Value::new(0.0, 0.0); values.len()]),
-                                Values::from_values(values),
-                            );
-                            plot_ui.arrows(arrows);
+                        if let Some((motion, _)) = &state.motion {
+                            ui.label(format!("{} blocks", motion));
+                        } else {
+                            ui.label("None");
                         }
                     });
 
-                std::mem::drop(app_state_lock);
+                    ui.label("Dominant motion:");
 
-                if clicked_close {
+                    Plot::new("dominant_motion")
+                        .data_aspect(1.0)
+                        .view_aspect(1.0)
+                        .allow_drag(false)
+                        .allow_boxed_zoom(false)
+                        .center_x_axis(true)
+                        .center_y_axis(true)
+                        .show_x(false)
+                        .show_y(false)
+                        .show(ui, |plot_ui| {
+                            if let Some((_, mf)) = &state.motion {
+                                let values = mf
+                                    .motion_iter()
+                                    .filter(|(_, motion)| motion.magnitude() > 0.0)
+                                    .map(|(_, motion)| motion * 10.0)
+                                    .map(|motion| Value::new(motion.x, -motion.y))
+                                    .collect::<Vec<_>>();
+
+                                let arrows = Arrows::new(
+                                    Values::from_values(vec![Value::new(0.0, 0.0); values.len()]),
+                                    Values::from_values(values),
+                                );
+                                plot_ui.arrows(arrows);
+                            }
+                        });
+
+                    std::mem::drop(app_state_lock);
+
+                    if clicked_close {
+                        self.app_state = None;
+                    }
+                } else {
+                    std::mem::drop(app_state_lock);
                     self.app_state = None;
                 }
             } else {
                 ui.label("Open motion vectors");
-
-                std::mem::drop(app_state_lock);
 
                 match DecoderPlugin::create_plugin_ui(
                     ui,
@@ -234,7 +289,8 @@ impl OfpsCtxApp for MotionDetectionApp {
                     |_| {},
                 ) {
                     Some(Ok(decoder)) => {
-                        self.app_state = Some(MotionDetectionState::worker(decoder))
+                        self.app_state =
+                            Some(MotionDetectionState::worker(decoder, Default::default()))
                     }
                     _ => {}
                 }
