@@ -9,6 +9,7 @@ use nalgebra as na;
 /// projection matrix.
 ///
 /// The principal point is defined at `(0.5; 0.5)` coordinates.
+#[derive(Clone, Copy, Debug)]
 pub struct StandardCamera {
     fov_x: f32,
     fov_y: f32,

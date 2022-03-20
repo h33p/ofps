@@ -89,7 +89,7 @@ pub fn triangulate_scale(ab: na::Vector3<f32>, bc: na::Vector3<f32>, ac: na::Vec
 }
 
 /// Open a file or an input stream.
-pub fn open_file(input: &str) -> Result<Box<dyn Read>> {
+pub fn open_file(input: &str) -> Result<Box<dyn Read + Send>> {
     if input.starts_with("tcp://") {
         let input = input.strip_prefix("tcp://").expect("Cannot strip prefix");
         let (addr, port) = input

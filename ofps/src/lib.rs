@@ -30,7 +30,10 @@ pub mod prelude {
             motion_field::{MotionField, MotionFieldDensifier},
         };
         #[cfg(feature = "plugins")]
-        pub use crate::{define_descriptor, plugins::PluginStore};
+        pub use crate::{
+            define_descriptor,
+            plugins::{DecoderPlugin, EstimatorPlugin, PluginStore},
+        };
         pub use anyhow::{anyhow, Error, Result};
         pub use ptrplus;
     }

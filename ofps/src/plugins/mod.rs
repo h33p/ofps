@@ -55,12 +55,16 @@ macro_rules! define_descriptor {
             use super::*;
             use $crate::plugins as __plugins;
 
+            $crate::paste::paste!{
+                use __plugins::[<$trait Plugin>] as OfpsPluginType;
+            }
+
             #[allow(unused_braces)]
-            fn __create_fn(args: <Box<dyn $trait> as __plugins::Loadable>::ArgsType) -> Result<Box<dyn $trait>> {
+            fn __create_fn(args: <OfpsPluginType as __plugins::Loadable>::ArgsType) -> Result<OfpsPluginType> {
                 fn __call_closure<T>(
                     __args: T,
-                    __closure: impl Fn(T) -> Result<Box<dyn $trait>>
-                ) -> Result<Box<dyn $trait>> {
+                    __closure: impl Fn(T) -> Result<OfpsPluginType>
+                ) -> Result<OfpsPluginType> {
                     __closure(__args)
                 }
 
@@ -69,7 +73,7 @@ macro_rules! define_descriptor {
 
             $crate::paste::paste!{
                 #[no_mangle]
-                pub static [<OFPS_ $trait _ $name>]: __plugins::Descriptor<Box<dyn $trait>> = __plugins::Descriptor {
+                pub static [<OFPS_ $trait _ $name>]: __plugins::Descriptor<Box<dyn $trait + Send + 'static>> = __plugins::Descriptor {
                     api_version: __plugins::API_VERSION,
                     compiler: $crate::cglue::slice::CSliceRef::from_str(__plugins::RUSTC_VERSION),
                     name: $crate::cglue::slice::CSliceRef::from_str(stringify!($name)),
@@ -231,9 +235,9 @@ pub trait Loadable: Sized {
     }
 }
 
-pub type LoadableDecoder = Box<dyn Decoder>;
+pub type DecoderPlugin = Box<dyn Decoder + Send + 'static>;
 
-impl Loadable for Box<dyn Decoder> {
+impl Loadable for DecoderPlugin {
     type ArgsType = String;
 
     fn export_prefix() -> &'static str {
@@ -245,9 +249,9 @@ impl Loadable for Box<dyn Decoder> {
     }
 }
 
-pub type LoadableEstimator = Box<dyn Estimator>;
+pub type EstimatorPlugin = Box<dyn Estimator + Send + 'static>;
 
-impl Loadable for Box<dyn Estimator> {
+impl Loadable for EstimatorPlugin {
     type ArgsType = String;
 
     fn export_prefix() -> &'static str {
@@ -264,8 +268,8 @@ impl Loadable for Box<dyn Estimator> {
 /// This structure scans various directories upon its construction and contains a list of various
 /// plugins that could be loaded.
 pub struct PluginStore {
-    decoders: Vec<LibInstance<LoadableDecoder>>,
-    estimators: Vec<LibInstance<LoadableEstimator>>,
+    decoders: Vec<LibInstance<DecoderPlugin>>,
+    estimators: Vec<LibInstance<EstimatorPlugin>>,
 }
 
 impl PluginStore {
@@ -357,12 +361,12 @@ impl PluginStore {
     }
 
     /// Create a new instance of a decoder.
-    pub fn create_decoder(&self, name: &str, args: String) -> Result<LoadableDecoder> {
+    pub fn create_decoder(&self, name: &str, args: String) -> Result<DecoderPlugin> {
         Self::create_internal(&self.decoders, name, args)
     }
 
     /// Create a new instance of motion estimator.
-    pub fn create_estimator(&self, name: &str, args: String) -> Result<LoadableEstimator> {
+    pub fn create_estimator(&self, name: &str, args: String) -> Result<EstimatorPlugin> {
         Self::create_internal(&self.estimators, name, args)
     }
 

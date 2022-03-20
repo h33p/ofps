@@ -161,6 +161,9 @@ pub struct AvDecoder<T: ?Sized> {
     sws_ctx: Option<&'static mut SwsContext>,
 }
 
+unsafe impl<T: Send + ?Sized> Send for AvDecoder<T> {}
+unsafe impl<T: Sync + ?Sized> Sync for AvDecoder<T> {}
+
 impl<T: ?Sized> Drop for AvDecoder<T> {
     fn drop(&mut self) {
         // SAFETY: the references will be dangling,

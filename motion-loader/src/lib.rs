@@ -10,7 +10,7 @@ use nalgebra as na;
 /// If the input ends with `.mvec`, it will be interpreted as a motion vector file.
 ///
 /// In MPEG mode, `tcp://` will be interpreted as a TCP network stream rather than a regular file.
-pub fn create_decoder(input: &str, plugin: Option<&str>) -> Result<Box<dyn Decoder>> {
+pub fn create_decoder(input: &str, plugin: Option<&str>) -> Result<DecoderPlugin> {
     if let Some(plugin) = plugin {
         let store = PluginStore::new();
         store.create_decoder(plugin, input.to_string())
