@@ -2,6 +2,7 @@ use crate::egui_app::EguiApp;
 use egui::*;
 use epi::Frame;
 use ofps::prelude::v1::*;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use wimrend::Renderer;
 
@@ -82,8 +83,16 @@ impl CreatePluginUi for DecoderPlugin {
         if state.extra {
             ui.add(TextEdit::singleline(&mut *guard));
         } else {
+            let filename = Path::new(&*guard);
+
             if ui
-                .button(if guard.is_empty() { "Open..." } else { &*guard })
+                .button(
+                    if let Some(name) = filename.file_name().and_then(|s| s.to_str()) {
+                        name
+                    } else {
+                        "Open..."
+                    },
+                )
                 .clicked()
             {
                 let arg = state.arg.clone();

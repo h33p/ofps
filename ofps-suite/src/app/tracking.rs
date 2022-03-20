@@ -20,8 +20,8 @@ pub struct MotionTrackingApp {
     app_state: Option<TrackingWorker>,
     app_settings: TrackingSettings,
     estimator_uis: Vec<CreateEstimatorUiState>,
-    cube_material: Option<Arc<Material>>,
     camera_controller: CameraController,
+    draw_grid: bool,
 }
 
 impl Default for MotionTrackingApp {
@@ -31,8 +31,8 @@ impl Default for MotionTrackingApp {
             app_state: None,
             app_settings: Default::default(),
             estimator_uis: vec![],
-            cube_material: None,
             camera_controller: Default::default(),
+            draw_grid: true,
         }
     }
 }
@@ -70,42 +70,30 @@ impl MotionTrackingApp {
     }
 
     fn render(&mut self, renderer: &mut Renderer) {
-        let cube_material = if let Some(cube_material) = self.cube_material.clone() {
-            cube_material
-        } else {
-            let cube_material = Arc::new(Material::unlit(renderer.pipeline_manager_mut()));
-            self.cube_material = Some(cube_material.clone());
-            cube_material
-        };
-
         self.camera_controller.on_render(renderer);
 
-        let start = na::matrix![0.0; 0.0; 0.0].into();
+        if self.draw_grid {
+            let range = 10isize;
 
-        let end = na::matrix![6.0; 2.0; 4.0].into();
+            let line_colour = na::matrix![0.1; 0.1; 0.1; 1.0];
+            let line_thickness = 2.0;
 
-        renderer.line(start, end, 4.0, na::matrix![1.0; 0.0; 0.0; 1.0]);
-
-        let range = 10isize;
-
-        let line_colour = na::matrix![0.1; 0.1; 0.1; 1.0];
-        let line_thickness = 2.0;
-
-        for v in -range..=range {
-            let v = v as f32;
-            let range = range as f32;
-            renderer.line(
-                na::matrix![v; -range; 0.0].into(),
-                na::matrix![v; range; 0.0].into(),
-                line_thickness,
-                line_colour,
-            );
-            renderer.line(
-                na::matrix![-range; v; 0.0].into(),
-                na::matrix![range; v; 0.0].into(),
-                line_thickness,
-                line_colour,
-            );
+            for v in -range..=range {
+                let v = v as f32;
+                let range = range as f32;
+                renderer.line(
+                    na::matrix![v; -range; 0.0].into(),
+                    na::matrix![v; range; 0.0].into(),
+                    line_thickness,
+                    line_colour,
+                );
+                renderer.line(
+                    na::matrix![-range; v; 0.0].into(),
+                    na::matrix![range; v; 0.0].into(),
+                    line_thickness,
+                    line_colour,
+                );
+            }
         }
 
         let (offset_factor, x_scale) = {
@@ -116,6 +104,7 @@ impl MotionTrackingApp {
             )
         };
 
+        // Render any layered frames
         if let Some(Ok(app_state)) = self.app_state.as_ref().map(|a| a.worker.read()) {
             for (state, settings) in app_state
                 .estimators
@@ -127,6 +116,7 @@ impl MotionTrackingApp {
 
                 for (pos, rot, mat) in state.layered_frames() {
                     if let Ok(mat) = mat.lock() {
+                        // Must ensure the frame is loaded.
                         if let FrameState::Loaded(mat) = &*mat {
                             renderer.obj(
                                 Mesh::centered_quad(),
@@ -175,6 +165,22 @@ impl OfpsCtxApp for MotionTrackingApp {
 
             ui.separator();
 
+            ui.heading("UI:");
+
+            ui.separator();
+
+            Grid::new(format!("tracking_ui")).show(ui, |ui| {
+                ui.checkbox(&mut self.draw_grid, "Draw grid");
+                ui.end_row();
+
+                ui.label("View FOV");
+
+                ui.add(Slider::new(&mut self.camera_controller.fov_y, 0.01..=179.0));
+                ui.end_row();
+            });
+
+            ui.separator();
+
             ui.heading("Decoder:");
 
             ui.separator();
@@ -201,6 +207,26 @@ impl OfpsCtxApp for MotionTrackingApp {
 
             ui.separator();
 
+            ui.heading("Camera:");
+
+            ui.separator();
+
+            Grid::new(format!("camera_settings")).show(ui, |ui| {
+                let (mut fov_x, mut fov_y) = self.app_settings.camera.fov();
+
+                ui.label("Horizontal FOV");
+                ui.add(Slider::new(&mut fov_x, 0.01..=179.0));
+                ui.end_row();
+
+                ui.label("Vertical FOV");
+                ui.add(Slider::new(&mut fov_y, 0.01..=179.0));
+                ui.end_row();
+
+                self.app_settings.camera = StandardCamera::new(fov_x, fov_y);
+            });
+
+            ui.separator();
+
             ui.heading("Estimators:");
 
             ui.separator();
@@ -211,7 +237,6 @@ impl OfpsCtxApp for MotionTrackingApp {
                 for (i, (state, (est, exists, settings))) in self
                     .estimator_uis
                     .iter_mut()
-                    //.zip(app_state.estimators.iter())
                     .zip(self.app_settings.settings.iter_mut())
                     .enumerate()
                 {

@@ -108,6 +108,13 @@ impl StandardCamera {
         ]
     }
 
+    /// Get the camera's field of view.
+    ///
+    /// Returns horizontal and vertical field of view as a tuple.
+    pub fn fov(&self) -> (f32, f32) {
+        (self.fov_x, self.fov_y)
+    }
+
     /// Calculate the essential matrix given a fundamental one.
     ///
     /// # Arguments

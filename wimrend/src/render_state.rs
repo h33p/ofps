@@ -77,7 +77,12 @@ impl<T: RenderSubState> RenderState<T> {
 
         surface.configure(&device, &config);
 
-        let msaa_samples = 4;
+        // Gl backend is buggy, no rendering occurs with depth texture and MSAA.
+        let msaa_samples = if adapter.get_info().backend == Backend::Gl {
+            1
+        } else {
+            4
+        };
 
         let sub_state = T::create(
             &device,

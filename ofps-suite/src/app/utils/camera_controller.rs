@@ -32,7 +32,11 @@ impl Default for CameraController {
         Self {
             fov_y: 90.0,
             focus_point: Default::default(),
-            rot: na::UnitQuaternion::identity(),
+            rot: na::UnitQuaternion::from_euler_angles(
+                -30f32.to_radians(),
+                0.0,
+                30f32.to_radians(),
+            ),
             dist: 1.0,
             in_motion: InMotion::None,
             scroll_sensitivity: 0.002,
