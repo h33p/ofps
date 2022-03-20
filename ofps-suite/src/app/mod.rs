@@ -3,7 +3,8 @@ use egui::*;
 use epi::Frame;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread::{spawn, JoinHandle};
@@ -31,11 +32,100 @@ impl Default for OfpsAppContext {
 }
 
 #[derive(Default)]
-pub struct ConfigState {
+pub struct FileLoader<T> {
+    picker: FilePicker,
+    path: String,
+    data: Option<T>,
+}
+
+impl<T: for<'a> Deserialize<'a>> FileLoader<T> {
+    pub fn load<E>(&mut self, deserialize: impl Fn(File) -> std::result::Result<T, E>) {
+        if let Ok(Ok(new_data)) = File::open(&self.path).map(deserialize) {
+            self.data = Some(new_data);
+        }
+    }
+
+    pub fn run<E>(
+        &mut self,
+        ui: &mut Ui,
+        id: &str,
+        deserialize: impl Fn(File) -> std::result::Result<T, E>,
+        dialog_builder: impl Fn() -> rfd::AsyncFileDialog,
+    ) -> Result<()>
+    where
+        anyhow::Error: From<E>,
+    {
+        self.picker.run_custom(
+            ui,
+            (&mut self.path, &mut self.data),
+            |(path, _), _, file| {
+                **path = file.clone();
+                Ok(())
+            },
+            |(path, data), ui, is_waiting| {
+                Grid::new(id)
+                    .show(ui, |ui| {
+                        ui.label(if data.is_some() {
+                            "Loaded file:"
+                        } else {
+                            "Pick file:"
+                        });
+
+                        let clicked = if is_waiting {
+                            ui.label("Waiting...");
+                            false
+                        } else {
+                            let p = Path::new(&path);
+                            let filename = p.file_name().and_then(|p| p.to_str());
+                            if data.is_some() {
+                                ui.label(filename.unwrap_or(path));
+                                false
+                            } else {
+                                ui.button(if let Some(filename) = &filename {
+                                    filename
+                                } else {
+                                    "Open..."
+                                })
+                                .clicked()
+                            }
+                        };
+
+                        ui.end_row();
+
+                        if data.is_some() {
+                            if ui.button("Close").clicked() {
+                                **data = None;
+                            }
+                        } else {
+                            if ui.button("Load").clicked() {
+                                if let Ok(Ok(new_data)) = File::open(path).map(deserialize) {
+                                    **data = Some(new_data);
+                                }
+                            }
+                        }
+
+                        ui.end_row();
+
+                        if clicked {
+                            Some(false)
+                        } else {
+                            None
+                        }
+                    })
+                    .inner
+            },
+            dialog_builder,
+            |path| path.into(),
+        )
+    }
+}
+
+#[derive(Default)]
+pub struct FilePicker {
     thread: Option<(bool, Receiver<Option<String>>, JoinHandle<()>)>,
 }
 
-impl Drop for ConfigState {
+impl Drop for FilePicker {
     fn drop(&mut self) {
         if let Some((_, _, h)) = self.thread.take() {
             let _ = h.join();
@@ -43,8 +133,8 @@ impl Drop for ConfigState {
     }
 }
 
-impl ConfigState {
-    pub fn run<I, T: Serialize + for<'a> Deserialize<'a>>(
+impl FilePicker {
+    pub fn run_config<I, T: Serialize + for<'a> Deserialize<'a>>(
         &mut self,
         ui: &mut Ui,
         name: &str,
@@ -53,62 +143,89 @@ impl ConfigState {
         instance: &mut I,
         ctx: &OfpsAppContext,
     ) -> Result<()> {
+        self.run_custom(
+            ui,
+            (),
+            move |_, save, file| -> Result<()> {
+                if save {
+                    let cfg = on_save(instance);
+                    let file = File::create(file)?;
+                    serde_json::to_writer_pretty(file, &cfg)?;
+                } else {
+                    let file = File::open(file)?;
+                    let cfg = serde_json::from_reader(file)?;
+                    on_load(instance, ctx, cfg)
+                }
+                Ok(())
+            },
+            |_, ui, _| {
+                ui.vertical_centered_justified(|ui| {
+                    ui.menu_button(RichText::new(name).heading(), |ui| {
+                        let mut save = None;
+                        if ui.button("Load Config").clicked() {
+                            save = Some(false);
+                            ui.close_menu();
+                        }
+                        if ui.button("Save Config").clicked() {
+                            save = Some(true);
+                            ui.close_menu();
+                        }
+                        save
+                    })
+                })
+                .inner
+                .inner
+                .flatten()
+            },
+            || rfd::AsyncFileDialog::new().add_filter("JSON Files", &["json"]),
+            |path| path.with_extension("json"),
+        )
+    }
+
+    pub fn run_custom<S>(
+        &mut self,
+        ui: &mut Ui,
+        mut state: S,
+        on_file: impl FnOnce(&mut S, bool, String) -> Result<()>,
+        ui_fn: impl FnOnce(&mut S, &mut Ui, bool) -> Option<bool>,
+        build_dialog: impl Fn() -> rfd::AsyncFileDialog,
+        path_map: impl Fn(&Path) -> PathBuf + Send + 'static,
+    ) -> Result<()> {
         if let Some((save, rx, h)) = self.thread.take() {
             if let Ok(file) = rx.try_recv() {
                 h.join().expect("Failed to join");
 
                 if let Some(file) = file {
-                    if save {
-                        let cfg = on_save(instance);
-                        let file = std::fs::File::create(file)?;
-                        serde_json::to_writer_pretty(file, &cfg)?;
-                    } else {
-                        let file = std::fs::File::open(file)?;
-                        let cfg = serde_json::from_reader(file)?;
-                        on_load(instance, ctx, cfg)
-                    }
+                    on_file(&mut state, save, file)?;
                 }
             } else {
                 self.thread = Some((save, rx, h));
             }
         }
 
-        ui.vertical_centered_justified(|ui| {
-            ui.menu_button(RichText::new(name).heading(), |ui| {
-                let mut save = None;
-                if ui.button("Load Config").clicked() {
-                    save = Some(false);
-                    ui.close_menu();
-                }
-                if ui.button("Save Config").clicked() {
-                    save = Some(true);
-                    ui.close_menu();
-                }
-                if let (Some(save), None) = (save, &self.thread) {
-                    let (tx, rx) = mpsc::channel();
-                    let h = spawn(move || {
-                        let task = rfd::AsyncFileDialog::new().add_filter("JSON Files", &["json"]);
+        if let (Some(save), None) = (ui_fn(&mut state, ui, self.thread.is_some()), &self.thread) {
+            let (tx, rx) = mpsc::channel();
+            let task = build_dialog();
 
-                        pollster::block_on(async move {
-                            let file = if save {
-                                task.save_file().await
-                            } else {
-                                task.pick_file().await
-                            };
+            let h = spawn(move || {
+                pollster::block_on(async move {
+                    let file = if save {
+                        task.save_file().await
+                    } else {
+                        task.pick_file().await
+                    };
 
-                            tx.send(
-                                file.map(|fh| fh.path().with_extension("json"))
-                                    .as_ref()
-                                    .and_then(|f| f.to_str())
-                                    .map(<_>::into),
-                            )
-                            .expect("Failed to send");
-                        })
-                    });
-                    self.thread = Some((save, rx, h));
-                }
-            })
-        });
+                    tx.send(
+                        file.map(|fh| path_map(fh.path()))
+                            .as_ref()
+                            .and_then(|f| f.to_str())
+                            .map(<_>::into),
+                    )
+                    .expect("Failed to send");
+                })
+            });
+            self.thread = Some((save, rx, h));
+        }
 
         Ok(())
     }
@@ -124,16 +241,17 @@ pub struct CreatePluginConfig<T> {
 #[derive(Default)]
 pub struct CreatePluginState<T> {
     config: CreatePluginConfig<T>,
-    thread: Option<(Receiver<Option<String>>, JoinHandle<()>)>,
+    picker: FilePicker,
+    //thread: Option<(Receiver<Option<String>>, JoinHandle<()>)>,
 }
 
-impl<T> Drop for CreatePluginState<T> {
+/*impl<T> Drop for CreatePluginState<T> {
     fn drop(&mut self) {
         if let Some((_, h)) = self.thread.take() {
             let _ = h.join();
         }
     }
-}
+}*/
 
 impl CreatePluginUi for EstimatorPlugin {
     type Extra = ();
@@ -181,48 +299,44 @@ impl CreatePluginUi for DecoderPlugin {
         if state.config.extra {
             ui.add(TextEdit::singleline(&mut state.config.arg));
         } else {
-            let filename = Path::new(&state.config.arg);
+            let _ = state.picker.run_custom(
+                ui,
+                &mut state.config.arg,
+                |arg, _, filename| -> Result<()> {
+                    **arg = filename;
+                    Ok(())
+                },
+                |arg, ui, is_waiting| {
+                    let filename = Path::new(arg);
 
-            if let Some((rx, h)) = state.thread.take() {
-                if let Ok(filename) = rx.try_recv() {
-                    h.join().expect("Failed to join");
-                    if let Some(filename) = filename {
-                        state.config.arg = filename;
-                    }
-                } else {
-                    state.thread = Some((rx, h));
-                }
-                ui.label("Waiting...");
-            } else {
-                if ui
-                    .button(
-                        if let Some(name) = filename.file_name().and_then(|s| s.to_str()) {
-                            name
+                    if is_waiting {
+                        ui.label("Waiting...");
+                        None
+                    } else {
+                        if ui
+                            .button(
+                                if let Some(name) = filename.file_name().and_then(|s| s.to_str()) {
+                                    name
+                                } else {
+                                    "Open..."
+                                },
+                            )
+                            .clicked()
+                        {
+                            Some(false)
                         } else {
-                            "Open..."
-                        },
-                    )
-                    .clicked()
-                {
-                    let (tx, rx) = mpsc::channel();
-
-                    let task = rfd::AsyncFileDialog::new()
+                            None
+                        }
+                    }
+                },
+                || {
+                    rfd::AsyncFileDialog::new()
                         .add_filter("Video", &["mp4", "mov", "mkv", "h264"])
                         .add_filter("Optical Flow", &["flo"])
                         .add_filter("OFPS Motion Vectors", &["mvec"])
-                        .pick_file();
-
-                    let h = std::thread::spawn(move || {
-                        pollster::block_on(async move {
-                            let file = task.await;
-                            let _ = tx
-                                .send(file.as_ref().and_then(|f| f.path().to_str()).map(<_>::into));
-                        })
-                    });
-
-                    state.thread = Some((rx, h));
-                }
-            }
+                },
+                |p| p.into(),
+            );
         }
 
         ui.end_row();

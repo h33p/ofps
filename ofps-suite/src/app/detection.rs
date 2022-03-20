@@ -1,6 +1,6 @@
 use super::utils::worker::{AppWorker, Workable};
 use super::{
-    ConfigState, CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, OfpsAppContext,
+    CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, FilePicker, OfpsAppContext,
     OfpsCtxApp,
 };
 use egui::*;
@@ -117,7 +117,7 @@ pub struct MotionDetectionApp {
     tex_handle: Option<TextureHandle>,
     overlay_mf: bool,
     settings: MotionDetectionSettings,
-    config_state: ConfigState,
+    config_state: FilePicker,
 }
 
 impl MotionDetectionApp {
@@ -174,7 +174,7 @@ impl OfpsCtxApp for MotionDetectionApp {
             egui::trace!(ui);
 
             let mut config_state = std::mem::take(&mut self.config_state);
-            config_state.run(
+            config_state.run_config(
                 ui,
                 "Detection",
                 Self::load_cfg,

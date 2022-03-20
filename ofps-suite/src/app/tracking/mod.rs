@@ -1,7 +1,7 @@
 use super::utils::camera_controller::CameraController;
 use super::{
-    ConfigState, CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig,
-    CreateEstimatorUiState, CreatePluginUi, OfpsAppContext, OfpsCtxApp,
+    CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig, CreateEstimatorUiState,
+    CreatePluginUi, FileLoader, FilePicker, OfpsAppContext, OfpsCtxApp,
 };
 use egui::*;
 use epi::Frame;
@@ -28,9 +28,33 @@ pub struct MotionTrackingConfig {
     view_focus_point: (f32, f32, f32),
     view_rot: (f32, f32, f32),
     view_dist: f32,
+    #[serde(default)]
+    ground_truth: (String, bool),
     estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
     camera_fov_x: f32,
     camera_fov_y: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy)]
+pub struct GroundTruth {
+    frame: usize,
+    fov_x: f32,
+    fov_y: f32,
+    rot_x: f32,
+    rot_y: f32,
+    rot_z: f32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+}
+
+impl GroundTruth {
+    fn from_csv(reader: std::fs::File) -> Result<Vec<GroundTruth>> {
+        csv::Reader::from_reader(reader)
+            .deserialize()
+            .map(|v| v.map_err(<_>::into))
+            .collect::<Result<Vec<GroundTruth>>>()
+    }
 }
 
 pub struct MotionTrackingApp {
@@ -40,7 +64,8 @@ pub struct MotionTrackingApp {
     estimator_uis: Vec<CreateEstimatorUiState>,
     camera_controller: CameraController,
     draw_grid: bool,
-    config_state: ConfigState,
+    config_state: FilePicker,
+    ground_truth: FileLoader<Vec<GroundTruth>>,
 }
 
 impl Default for MotionTrackingApp {
@@ -53,6 +78,7 @@ impl Default for MotionTrackingApp {
             camera_controller: Default::default(),
             draw_grid: true,
             config_state: Default::default(),
+            ground_truth: Default::default(),
         }
     }
 }
@@ -168,6 +194,7 @@ impl MotionTrackingApp {
             view_focus_point,
             view_rot,
             view_dist,
+            ground_truth,
             estimators,
             camera_fov_x,
             camera_fov_y,
@@ -185,6 +212,12 @@ impl MotionTrackingApp {
 
         self.app_settings.camera = StandardCamera::new(camera_fov_x, camera_fov_y);
         self.app_settings.settings.clear();
+
+        self.ground_truth.data = None;
+        self.ground_truth.path = ground_truth.0;
+        if ground_truth.1 {
+            self.ground_truth.load(GroundTruth::from_csv);
+        }
 
         for (cfg, loaded, settings) in estimators {
             let mut ui = CreateEstimatorUiState::default();
@@ -234,6 +267,10 @@ impl MotionTrackingApp {
             },
             view_rot: self.camera_controller.rot.euler_angles(),
             view_dist: self.camera_controller.dist,
+            ground_truth: (
+                self.ground_truth.path.clone(),
+                self.ground_truth.data.is_some(),
+            ),
             estimators: self
                 .estimator_uis
                 .iter()
@@ -279,7 +316,7 @@ impl OfpsCtxApp for MotionTrackingApp {
             egui::trace!(ui);
 
             let mut config_state = std::mem::take(&mut self.config_state);
-            config_state.run(
+            config_state.run_config(
                 ui,
                 "Tracking",
                 Self::load_cfg,
@@ -350,6 +387,18 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                 self.app_settings.camera = StandardCamera::new(fov_x, fov_y);
             });
+
+            ui.separator();
+
+            ui.heading("Ground truth:");
+
+            ui.separator();
+
+            let _ = self
+                .ground_truth
+                .run(ui, "ground_truth", GroundTruth::from_csv, || {
+                    rfd::AsyncFileDialog::new().add_filter("CSV Files", &["csv"])
+                });
 
             ui.separator();
 
