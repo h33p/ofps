@@ -186,117 +186,125 @@ impl OfpsCtxApp for MotionDetectionApp {
 
             ui.separator();
 
-            Grid::new("motion_settings").show(ui, |ui| {
-                ui.label("Min size:");
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    Grid::new("motion_settings").show(ui, |ui| {
+                        ui.label("Min size:");
 
-                ui.add(Slider::new(&mut self.settings.min_size, 0.01..=1.0));
+                        ui.add(Slider::new(&mut self.settings.min_size, 0.01..=1.0));
 
-                ui.end_row();
+                        ui.end_row();
 
-                ui.label("Subdivisions:");
+                        ui.label("Subdivisions:");
 
-                ui.add(Slider::new(&mut self.settings.subdivide, 1..=16));
+                        ui.add(Slider::new(&mut self.settings.subdivide, 1..=16));
 
-                ui.end_row();
+                        ui.end_row();
 
-                ui.label("Min magnitude:");
+                        ui.label("Min magnitude:");
 
-                ui.add(Slider::new(&mut self.settings.target_motion, 0.0001..=0.01));
+                        ui.add(Slider::new(&mut self.settings.target_motion, 0.0001..=0.01));
 
-                ui.end_row();
+                        ui.end_row();
 
-                ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
-            });
-
-            ui.separator();
-
-            if let Some(app_state) = &self.app_state {
-                let _ = app_state.settings().map(|mut s| *s = self.settings);
-
-                let mut app_state_lock = app_state.read();
-
-                if let Ok(state) = &mut app_state_lock {
-                    if !state.frame.is_empty() {
-                        let image = ColorImage::from_rgba_unmultiplied(
-                            [state.frame.len() / state.frame_height, state.frame_height],
-                            bytemuck::cast_slice(&*state.frame),
-                        );
-
-                        if let Some(th) = self.tex_handle.as_mut() {
-                            th.set(image);
-                        } else {
-                            self.tex_handle = Some(ui.ctx().load_texture("detector-frame", image));
-                        }
-                    }
-
-                    let clicked_close = ui.button("Close").clicked();
-
-                    Grid::new("motion_info").show(ui, |ui| {
-                        ui.label("Motion:");
-
-                        if let Some((motion, _)) = &state.motion {
-                            ui.label(format!("{} blocks", motion));
-                        } else {
-                            ui.label("None");
-                        }
+                        ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
                     });
 
-                    ui.label("Dominant motion:");
+                    ui.separator();
 
-                    Plot::new("dominant_motion")
-                        .data_aspect(1.0)
-                        .view_aspect(1.0)
-                        .allow_drag(false)
-                        .allow_boxed_zoom(false)
-                        .center_x_axis(true)
-                        .center_y_axis(true)
-                        .show_x(false)
-                        .show_y(false)
-                        .show(ui, |plot_ui| {
-                            if let Some((_, mf)) = &state.motion {
-                                let values = mf
-                                    .motion_iter()
-                                    .filter(|(_, motion)| motion.magnitude() > 0.0)
-                                    .map(|(_, motion)| motion * 10.0)
-                                    .map(|motion| Value::new(motion.x, -motion.y))
-                                    .collect::<Vec<_>>();
+                    if let Some(app_state) = &self.app_state {
+                        let _ = app_state.settings().map(|mut s| *s = self.settings);
 
-                                let arrows = Arrows::new(
-                                    Values::from_values(vec![Value::new(0.0, 0.0); values.len()]),
-                                    Values::from_values(values),
+                        let mut app_state_lock = app_state.read();
+
+                        if let Ok(state) = &mut app_state_lock {
+                            if !state.frame.is_empty() {
+                                let image = ColorImage::from_rgba_unmultiplied(
+                                    [state.frame.len() / state.frame_height, state.frame_height],
+                                    bytemuck::cast_slice(&*state.frame),
                                 );
-                                plot_ui.arrows(arrows);
+
+                                if let Some(th) = self.tex_handle.as_mut() {
+                                    th.set(image);
+                                } else {
+                                    self.tex_handle =
+                                        Some(ui.ctx().load_texture("detector-frame", image));
+                                }
                             }
-                        });
 
-                    std::mem::drop(app_state_lock);
+                            let clicked_close = ui.button("Close").clicked();
 
-                    if clicked_close {
-                        self.app_state = None;
+                            Grid::new("motion_info").show(ui, |ui| {
+                                ui.label("Motion:");
+
+                                if let Some((motion, _)) = &state.motion {
+                                    ui.label(format!("{} blocks", motion));
+                                } else {
+                                    ui.label("None");
+                                }
+                            });
+
+                            ui.label("Dominant motion:");
+
+                            Plot::new("dominant_motion")
+                                .data_aspect(1.0)
+                                .view_aspect(1.0)
+                                .allow_drag(false)
+                                .allow_boxed_zoom(false)
+                                .center_x_axis(true)
+                                .center_y_axis(true)
+                                .show_x(false)
+                                .show_y(false)
+                                .show(ui, |plot_ui| {
+                                    if let Some((_, mf)) = &state.motion {
+                                        let values = mf
+                                            .motion_iter()
+                                            .filter(|(_, motion)| motion.magnitude() > 0.0)
+                                            .map(|(_, motion)| motion * 10.0)
+                                            .map(|motion| Value::new(motion.x, -motion.y))
+                                            .collect::<Vec<_>>();
+
+                                        let arrows = Arrows::new(
+                                            Values::from_values(vec![
+                                                Value::new(0.0, 0.0);
+                                                values.len()
+                                            ]),
+                                            Values::from_values(values),
+                                        );
+                                        plot_ui.arrows(arrows);
+                                    }
+                                });
+
+                            std::mem::drop(app_state_lock);
+
+                            if clicked_close {
+                                self.app_state = None;
+                            }
+                        } else {
+                            std::mem::drop(app_state_lock);
+                            self.app_state = None;
+                        }
+                    } else {
+                        ui.label("Open motion vectors");
+
+                        match DecoderPlugin::create_plugin_ui(
+                            ui,
+                            ofps_ctx,
+                            &mut self.create_decoder_state,
+                            0,
+                            |_| {},
+                        ) {
+                            Some(Ok(decoder)) => {
+                                self.app_state =
+                                    Some(MotionDetectionState::worker(decoder, Default::default()))
+                            }
+                            _ => {}
+                        }
                     }
-                } else {
-                    std::mem::drop(app_state_lock);
-                    self.app_state = None;
-                }
-            } else {
-                ui.label("Open motion vectors");
 
-                match DecoderPlugin::create_plugin_ui(
-                    ui,
-                    ofps_ctx,
-                    &mut self.create_decoder_state,
-                    0,
-                    |_| {},
-                ) {
-                    Some(Ok(decoder)) => {
-                        self.app_state =
-                            Some(MotionDetectionState::worker(decoder, Default::default()))
-                    }
-                    _ => {}
-                }
-            }
-
-            ui.separator();
+                    ui.separator();
+                });
         });
 
         let mut app_state_lock = self.app_state.as_ref().map(|s| s.read());

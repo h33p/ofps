@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::material::Material;
 use wimrend::mesh::Mesh;
 use wimrend::Renderer;
@@ -22,6 +23,7 @@ use worker::{EstimatorSettings, FrameState, TrackingSettings, TrackingState, Tra
 
 #[derive(Serialize, Deserialize)]
 pub struct MotionTrackingConfig {
+    #[serde(default)]
     decoder: (CreateDecoderUiConfig, bool),
     draw_grid: bool,
     view_fov: f32,
@@ -30,6 +32,7 @@ pub struct MotionTrackingConfig {
     view_dist: f32,
     #[serde(default)]
     ground_truth: (String, bool),
+    #[serde(default)]
     estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
     camera_fov_x: f32,
     camera_fov_y: f32,
@@ -328,167 +331,235 @@ impl OfpsCtxApp for MotionTrackingApp {
 
             ui.separator();
 
-            ui.heading("UI:");
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.heading("UI:");
 
-            ui.separator();
+                    ui.separator();
 
-            Grid::new(format!("tracking_ui")).show(ui, |ui| {
-                ui.checkbox(&mut self.draw_grid, "Draw grid");
-                ui.end_row();
-
-                ui.label("View FOV");
-
-                ui.add(Slider::new(&mut self.camera_controller.fov_y, 0.01..=179.0));
-                ui.end_row();
-            });
-
-            ui.separator();
-
-            ui.heading("Decoder:");
-
-            ui.separator();
-
-            if let Some(_) = &mut self.app_state {
-                if ui.button("Close decoder").clicked() {
-                    self.app_state = None;
-                }
-            } else {
-                match DecoderPlugin::create_plugin_ui(
-                    ui,
-                    ofps_ctx,
-                    &mut self.create_decoder_state,
-                    0,
-                    |_| {},
-                ) {
-                    Some(Ok(decoder)) => {
-                        self.app_state =
-                            Some(TrackingState::worker(decoder, self.app_settings.clone()))
-                    }
-                    _ => {}
-                }
-            }
-
-            ui.separator();
-
-            ui.heading("Camera:");
-
-            ui.separator();
-
-            Grid::new(format!("camera_settings")).show(ui, |ui| {
-                let (mut fov_x, mut fov_y) = self.app_settings.camera.fov();
-
-                ui.label("Horizontal FOV");
-                ui.add(Slider::new(&mut fov_x, 0.01..=179.0));
-                ui.end_row();
-
-                ui.label("Vertical FOV");
-                ui.add(Slider::new(&mut fov_y, 0.01..=179.0));
-                ui.end_row();
-
-                self.app_settings.camera = StandardCamera::new(fov_x, fov_y);
-            });
-
-            ui.separator();
-
-            ui.heading("Ground truth:");
-
-            ui.separator();
-
-            let _ = self
-                .ground_truth
-                .run(ui, "ground_truth", GroundTruth::from_csv, || {
-                    rfd::AsyncFileDialog::new().add_filter("CSV Files", &["csv"])
-                });
-
-            ui.separator();
-
-            ui.heading("Estimators:");
-
-            ui.separator();
-
-            let mut to_remove = None;
-
-            {
-                for (i, (state, (est, exists, settings))) in self
-                    .estimator_uis
-                    .iter_mut()
-                    .zip(self.app_settings.settings.iter_mut())
-                    .enumerate()
-                {
-                    let is_some = exists.load(Ordering::Relaxed);
-
-                    Grid::new(format!("estimator_ui_{i}")).show(ui, |ui| {
-                        ui.label(format!("Estimator #{}", i));
+                    Grid::new(format!("tracking_ui")).show(ui, |ui| {
+                        ui.checkbox(&mut self.draw_grid, "Draw grid");
                         ui.end_row();
 
-                        ui.checkbox(&mut settings.layer_frames, "Draw frames");
-                        ui.end_row();
-                        ui.label("Angle delta");
-                        ui.add(
-                            Slider::new(&mut settings.layer_angle_delta, 0.01..=90.0)
-                                .step_by(0.01)
-                                .logarithmic(true),
-                        );
-                        ui.end_row();
+                        ui.label("View FOV");
 
-                        ui.label("Keep frames");
-                        ui.add(Slider::new(&mut settings.keep_frames, 1..=1000));
+                        ui.add(Slider::new(&mut self.camera_controller.fov_y, 0.01..=179.0));
                         ui.end_row();
-
-                        ui.label("Position scale");
-                        ui.add(Slider::new(&mut settings.scale_factor, 0.00..=10.0));
-                        ui.end_row();
-
-                        ui.label("Frame offset");
-                        ui.add(
-                            Slider::new(&mut settings.camera_offset, 0.00..=100.0).step_by(0.01),
-                        );
-                        ui.end_row();
-
-                        if is_some {
-                            if ui.button("Stop").clicked() {
-                                *est.lock().unwrap() = None;
-                                exists.store(false, Ordering::Relaxed);
-                            }
-                            if ui.button("Remove").clicked() {
-                                to_remove = Some(i);
-                            }
-                            ui.end_row();
-                        }
                     });
 
-                    if !is_some {
-                        match EstimatorPlugin::create_plugin_ui(ui, ofps_ctx, state, i + 1, |ui| {
-                            if ui.button("Remove").clicked() {
-                                to_remove = Some(i);
-                            }
-                        }) {
-                            Some(Ok(new_estimator)) => {
-                                *est.lock().unwrap() = Some(new_estimator);
-                                exists.store(true, Ordering::Relaxed);
+                    ui.separator();
+
+                    ui.heading("Decoder:");
+
+                    ui.separator();
+
+                    if let Some(_) = &mut self.app_state {
+                        if ui.button("Close decoder").clicked() {
+                            self.app_state = None;
+                        }
+                    } else {
+                        match DecoderPlugin::create_plugin_ui(
+                            ui,
+                            ofps_ctx,
+                            &mut self.create_decoder_state,
+                            0,
+                            |_| {},
+                        ) {
+                            Some(Ok(decoder)) => {
+                                self.app_state =
+                                    Some(TrackingState::worker(decoder, self.app_settings.clone()))
                             }
                             _ => {}
                         }
                     }
 
                     ui.separator();
-                }
 
-                if let Some(to_remove) = to_remove {
-                    self.app_settings.settings.remove(to_remove);
-                    self.estimator_uis.remove(to_remove);
-                }
+                    ui.heading("Camera:");
 
-                if ui.button("New estimator").clicked() {
-                    self.app_settings.settings.push(Default::default());
-                    self.estimator_uis.push(Default::default());
-                }
+                    ui.separator();
 
-                if let Some(Ok(mut settings)) = self.app_state.as_ref().map(|a| a.worker.settings())
-                {
-                    *settings = self.app_settings.clone();
-                }
-            }
+                    Grid::new(format!("camera_settings")).show(ui, |ui| {
+                        let (mut fov_x, mut fov_y) = self.app_settings.camera.fov();
+
+                        ui.label("Horizontal FOV");
+                        ui.add(Slider::new(&mut fov_x, 0.01..=179.0));
+                        ui.end_row();
+
+                        ui.label("Vertical FOV");
+                        ui.add(Slider::new(&mut fov_y, 0.01..=179.0));
+                        ui.end_row();
+
+                        self.app_settings.camera = StandardCamera::new(fov_x, fov_y);
+                    });
+
+                    ui.separator();
+
+                    ui.heading("Ground truth:");
+
+                    ui.separator();
+
+                    let _ =
+                        self.ground_truth
+                            .run(ui, "ground_truth", GroundTruth::from_csv, || {
+                                rfd::AsyncFileDialog::new().add_filter("CSV Files", &["csv"])
+                            });
+
+                    ui.separator();
+
+                    ui.heading("Estimators:");
+
+                    ui.separator();
+
+                    let mut to_remove = None;
+
+                    {
+                        for (i, (state, (est, exists, settings))) in self
+                            .estimator_uis
+                            .iter_mut()
+                            .zip(self.app_settings.settings.iter_mut())
+                            .enumerate()
+                        {
+                            let is_some = exists.load(Ordering::Relaxed);
+
+                            Grid::new(format!("estimator_ui_{i}")).show(ui, |ui| {
+                                ui.label(format!("Estimator #{}", i));
+                                ui.end_row();
+
+                                ui.checkbox(&mut settings.layer_frames, "Draw frames");
+                                ui.end_row();
+                                ui.label("Angle delta");
+                                ui.add(
+                                    Slider::new(&mut settings.layer_angle_delta, 0.01..=90.0)
+                                        .step_by(0.01)
+                                        .logarithmic(true),
+                                );
+                                ui.end_row();
+
+                                ui.label("Keep frames");
+                                ui.add(Slider::new(&mut settings.keep_frames, 1..=1000));
+                                ui.end_row();
+
+                                ui.label("Position scale");
+                                ui.add(Slider::new(&mut settings.scale_factor, 0.00..=10.0));
+                                ui.end_row();
+
+                                ui.label("Frame offset");
+                                ui.add(
+                                    Slider::new(&mut settings.camera_offset, 0.00..=100.0)
+                                        .step_by(0.01),
+                                );
+                                ui.end_row();
+
+                                if is_some {
+                                    if ui.button("Stop").clicked() {
+                                        *est.lock().unwrap() = None;
+                                        exists.store(false, Ordering::Relaxed);
+                                    }
+                                    if ui.button("Remove").clicked() {
+                                        to_remove = Some(i);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+
+                            if !is_some {
+                                match EstimatorPlugin::create_plugin_ui(
+                                    ui,
+                                    ofps_ctx,
+                                    state,
+                                    i + 1,
+                                    |ui| {
+                                        if ui.button("Remove").clicked() {
+                                            to_remove = Some(i);
+                                        }
+                                    },
+                                ) {
+                                    Some(Ok(new_estimator)) => {
+                                        *est.lock().unwrap() = Some(new_estimator);
+                                        exists.store(true, Ordering::Relaxed);
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            ui.separator();
+                        }
+
+                        if let Some(to_remove) = to_remove {
+                            self.app_settings.settings.remove(to_remove);
+                            self.estimator_uis.remove(to_remove);
+                        }
+
+                        if ui.button("New estimator").clicked() {
+                            self.app_settings.settings.push(Default::default());
+                            self.estimator_uis.push(Default::default());
+                        }
+
+                        if let Some(Ok(mut settings)) =
+                            self.app_state.as_ref().map(|a| a.worker.settings())
+                        {
+                            *settings = self.app_settings.clone();
+                        }
+                    }
+                });
         });
+
+        let mut visuals = ctx.style().visuals.clone();
+        let prev_visuals = visuals.clone();
+        let prev = visuals.widgets.noninteractive.bg_fill;
+        visuals.widgets.noninteractive.bg_fill =
+            Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
+        ctx.set_visuals(visuals);
+
+        egui::Window::new("Stats").show(ctx, |ui| {
+            ScrollArea::vertical()
+                .auto_shrink([true, true])
+                .show(ui, |ui| {
+                    Grid::new(format!("tracking_ui")).show(ui, |ui| {
+                        ui.label("Estimator");
+                        ui.label("Combo");
+                        ui.label("Roll");
+                        ui.label("Pitch");
+                        ui.label("Yaw");
+                        ui.end_row();
+
+                        let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
+
+                        for (i, (est, _)) in self
+                            .estimator_uis
+                            .iter()
+                            .zip(self.app_settings.settings.iter())
+                            .enumerate()
+                            .filter(|(_, (est, set))| set.1.load(Ordering::Relaxed))
+                        {
+                            ui.label(&est.config.selected_plugin);
+
+                            if let Some(est) = state.as_ref().and_then(|s| s.estimators.get(i)) {
+                                ui.label("RUNNING");
+                            }
+
+                            ui.end_row();
+                        }
+                    });
+                });
+        });
+
+        egui::Window::new("Graphs").show(ctx, |ui| {
+            //ctx.set_visuals(prev_visuals.clone());
+            ui.label("Hello World!");
+            Plot::new("motion_window")
+                .center_y_axis(true)
+                .allow_drag(false)
+                .allow_boxed_zoom(false)
+                .show_x(false)
+                .show_y(false)
+                .min_size(Vec2::new(1.0, 1.0))
+                .show_axes([true, false])
+                .show(ui, |plot_ui| {});
+        });
+
+        ctx.set_visuals(prev_visuals);
     }
 }

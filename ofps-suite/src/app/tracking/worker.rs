@@ -130,8 +130,11 @@ pub struct TrackingState {
     estimator_states: Vec<Option<EstimatorState>>,
     frames_to_load: Sender<Arc<Mutex<FrameState>>>,
     motion_vectors: Vec<MotionEntry>,
+    motion_vectors_2: Vec<MotionEntry>,
     frame: Vec<RGBA>,
+    frame_2: Vec<RGBA>,
     frame_height: usize,
+    frame_height_2: usize,
     frames: usize,
 }
 
@@ -148,8 +151,11 @@ impl TrackingState {
             estimator_states: vec![],
             frames_to_load,
             motion_vectors: vec![],
+            motion_vectors_2: vec![],
             frame: vec![],
+            frame_2: vec![],
             frame_height: 0,
+            frame_height_2: 0,
             frames: 0,
         }
     }
@@ -180,18 +186,24 @@ impl TrackingState {
         }
 
         // Get the motion field.
-        self.motion_vectors.clear();
+        self.motion_vectors_2.clear();
 
-        self.frame.clear();
-        self.frame_height = 0;
+        self.frame_2.clear();
+        self.frame_height_2 = 0;
 
-        self.decoder
-            .process_frame(
-                &mut self.motion_vectors,
-                Some((&mut self.frame, &mut self.frame_height)),
-                0,
-            )
-            .ok();
+        match self.decoder.process_frame(
+            &mut self.motion_vectors_2,
+            Some((&mut self.frame_2, &mut self.frame_height_2)),
+            0,
+        ) {
+            Ok(true) | Err(_) => {
+                std::mem::swap(&mut self.motion_vectors, &mut self.motion_vectors_2);
+                std::mem::swap(&mut self.frame, &mut self.frame_2);
+                std::mem::swap(&mut self.frame_height, &mut self.frame_height_2);
+            }
+            // Keep previous frame/motion if there was no motion vectors.
+            _ => {}
+        }
 
         self.frames += 1;
 

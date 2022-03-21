@@ -57,12 +57,14 @@ impl CameraController {
             let over_area = ctx.is_pointer_over_area();
             let input = ctx.input();
 
-            self.dist =
-                (self.dist * (1.0 - input.scroll_delta.y * self.scroll_sensitivity)).max(0.1);
-
             let pressed = input.pointer.primary_down();
             self.pressed = pressed && (self.pressed || (!self.last_down && !over_area));
             self.last_down = pressed;
+
+            if self.pressed || !over_area {
+                self.dist =
+                    (self.dist * (1.0 - input.scroll_delta.y * self.scroll_sensitivity)).max(0.1);
+            }
 
             if let Some((pointer, true)) = input.pointer.interact_pos().map(|p| (p, self.pressed)) {
                 let pan_key = input.modifiers.shift;
