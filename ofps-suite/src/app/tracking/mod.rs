@@ -43,9 +43,10 @@ pub struct GroundTruth {
     frame: usize,
     fov_x: f32,
     fov_y: f32,
-    rot_x: f32,
-    rot_y: f32,
-    rot_z: f32,
+    rot_w: f32,
+    rot_i: f32,
+    rot_j: f32,
+    rot_k: f32,
     pos_x: f32,
     pos_y: f32,
     pos_z: f32,
@@ -57,6 +58,47 @@ impl GroundTruth {
             .deserialize()
             .map(|v| v.map_err(<_>::into))
             .collect::<Result<Vec<GroundTruth>>>()
+    }
+
+    fn rot(&self) -> na::UnitQuaternion<f32> {
+        na::UnitQuaternion::from_quaternion(na::Quaternion::new(
+            self.rot_w, self.rot_i, self.rot_j, self.rot_k,
+        ))
+    }
+
+    fn calc_err<'a>(
+        truth: &'a [Self],
+        transforms: &'a [(na::Vector3<f32>, na::UnitQuaternion<f32>)],
+    ) -> impl Iterator<Item = (usize, f32, f32, f32, f32)> + 'a {
+        truth
+            .iter()
+            .zip(truth.get(0).into_iter().chain(truth.iter()))
+            .filter_map(move |(t0, t)| transforms.get(t.frame - 1).zip(Some((t0, t))))
+            .map(|((_, rot), (prev_truth, truth))| {
+                let q1 = prev_truth.rot();
+                let q2 = truth.rot();
+                let q = q1.rotation_to(&q2);
+                // Swap roll and pitch since data is coming from blender
+                let (p, r, y) = rot.euler_angles();
+                let (pt, rt, yt) = q.euler_angles();
+                let [r, p, y] = [r - rt, p - pt, y - yt].map(|v| v.abs() % std::f32::consts::PI);
+
+                (truth.frame - 1, rot.angle_to(&q), r, p, y)
+            })
+    }
+
+    fn calc_avg_err(
+        truth: &[Self],
+        transforms: &[(na::Vector3<f32>, na::UnitQuaternion<f32>)],
+    ) -> (f32, f32, f32, f32) {
+        let (c, err, err_r, err_p, err_y) = Self::calc_err(truth, transforms).fold(
+            (0, 0.0, 0.0, 0.0, 0.0),
+            |(cnt, e0, r0, p0, y0), (_, e1, r1, p1, y1)| {
+                (cnt + 1, e0 + e1, r0 + r1, p0 + p1, y0 + y1)
+            },
+        );
+        let c = if c == 0 { 1.0 } else { c as f32 };
+        (err / c, err_r / c, err_p / c, err_y / c)
     }
 }
 
@@ -506,60 +548,109 @@ impl OfpsCtxApp for MotionTrackingApp {
                 });
         });
 
-        let mut visuals = ctx.style().visuals.clone();
-        let prev_visuals = visuals.clone();
-        let prev = visuals.widgets.noninteractive.bg_fill;
-        visuals.widgets.noninteractive.bg_fill =
-            Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
-        ctx.set_visuals(visuals);
+        if let Some(ground_truth) = &self.ground_truth.data {
+            let mut visuals = ctx.style().visuals.clone();
+            let prev_visuals = visuals.clone();
+            let prev = visuals.widgets.noninteractive.bg_fill;
+            visuals.widgets.noninteractive.bg_fill =
+                Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
+            ctx.set_visuals(visuals);
 
-        egui::Window::new("Stats").show(ctx, |ui| {
-            ScrollArea::vertical()
-                .auto_shrink([true, true])
-                .show(ui, |ui| {
-                    Grid::new(format!("tracking_ui")).show(ui, |ui| {
-                        ui.label("Estimator");
-                        ui.label("Combo");
-                        ui.label("Roll");
-                        ui.label("Pitch");
-                        ui.label("Yaw");
-                        ui.end_row();
-
-                        let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
-
-                        for (i, (est, _)) in self
-                            .estimator_uis
-                            .iter()
-                            .zip(self.app_settings.settings.iter())
-                            .enumerate()
-                            .filter(|(_, (est, set))| set.1.load(Ordering::Relaxed))
-                        {
-                            ui.label(&est.config.selected_plugin);
-
-                            if let Some(est) = state.as_ref().and_then(|s| s.estimators.get(i)) {
-                                ui.label("RUNNING");
-                            }
-
-                            ui.end_row();
-                        }
+            egui::Window::new("Error Summary").show(ctx, |ui| {
+                ScrollArea::vertical()
+                    .auto_shrink([true, true])
+                    .show(ui, |ui| {
+                        Grid::new(format!("tracking_ui"))
+                            .min_col_width(ui.spacing().interact_size.x + 15.0)
+                            .show(ui, |ui| {
+                                fn jlabel(ui: &mut Ui, label: impl Into<WidgetText>) {
+                                    ui.vertical_centered_justified(|ui| {
+                                        ui.label(label);
+                                    });
+                                }
+                                jlabel(ui, "Estimator");
+                                jlabel(ui, "Combo");
+                                jlabel(ui, "Roll");
+                                jlabel(ui, "Pitch");
+                                jlabel(ui, "Yaw");
+                                ui.end_row();
+                                let state =
+                                    self.app_state.as_ref().and_then(|a| a.worker.read().ok());
+                                for (i, (est, _)) in self
+                                    .estimator_uis
+                                    .iter()
+                                    .zip(self.app_settings.settings.iter())
+                                    .enumerate()
+                                    .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
+                                {
+                                    jlabel(ui, &est.config.selected_plugin);
+                                    if let Some(est) = state
+                                        .as_ref()
+                                        .and_then(|s| s.estimators.get(i).map(Option::as_ref))
+                                        .flatten()
+                                    {
+                                        let (err, err_r, err_p, err_y) = GroundTruth::calc_avg_err(
+                                            &ground_truth,
+                                            &est.transforms,
+                                        );
+                                        for v in [err, err_r, err_p, err_y] {
+                                            jlabel(ui, format!("{:.03}", v.to_degrees()));
+                                        }
+                                    } else {
+                                        for _ in 0..4 {
+                                            jlabel(ui, "-");
+                                        }
+                                    }
+                                    ui.end_row();
+                                }
+                            });
                     });
-                });
-        });
+            });
 
-        egui::Window::new("Graphs").show(ctx, |ui| {
-            //ctx.set_visuals(prev_visuals.clone());
-            ui.label("Hello World!");
-            Plot::new("motion_window")
-                .center_y_axis(true)
-                .allow_drag(false)
-                .allow_boxed_zoom(false)
-                .show_x(false)
-                .show_y(false)
-                .min_size(Vec2::new(1.0, 1.0))
-                .show_axes([true, false])
-                .show(ui, |plot_ui| {});
-        });
+            egui::Window::new("Error Graphs").show(ctx, |ui| {
+                if let Some(Ok(state)) = self.app_state.as_ref().map(|a| a.worker.read()) {
+                    Plot::new("error_graphs")
+                        .legend(Default::default())
+                        /*.center_y_axis(true)
+                        .allow_drag(false)
+                        .allow_boxed_zoom(false)
+                        .show_x(false)
+                        .show_y(false)
+                        .min_size(Vec2::new(1.0, 1.0))
+                        .show_axes([true, false])*/
+                        .show(ui, |plot_ui| {
+                            for (name, est) in
+                                state.estimators.iter().enumerate().filter_map(|(i, est)| {
+                                    self.estimator_uis
+                                        .get(i)
+                                        .map(|ui| &ui.config.selected_plugin)
+                                        .zip(est.as_ref())
+                                })
+                            {
+                                let mut errs = [
+                                    ("total err", vec![]),
+                                    ("roll err", vec![]),
+                                    ("pitch err", vec![]),
+                                    ("yaw err", vec![]),
+                                ];
+                                for (f, err, err_r, err_p, err_y) in
+                                    GroundTruth::calc_err(&ground_truth, &est.transforms)
+                                {
+                                    for (i, err) in [err, err_r, err_p, err_y].iter().enumerate() {
+                                        errs[i].1.push(Value::new(f as f32, *err));
+                                    }
+                                }
+                                for (plot_name, errs) in errs {
+                                    let errs = Values::from_values(errs);
+                                    plot_ui
+                                        .line(Line::new(errs).name(format!("{name} {plot_name}")));
+                                }
+                            }
+                        });
+                }
+            });
 
-        ctx.set_visuals(prev_visuals);
+            ctx.set_visuals(prev_visuals);
+        }
     }
 }

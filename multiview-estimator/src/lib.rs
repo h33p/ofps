@@ -139,7 +139,7 @@ impl MultiviewEstimator {
 
         let cam_matrix = camera.intrinsics();
 
-        println!("{:?}", cam_matrix);
+        //println!("{:?}", cam_matrix);
 
         let cam_matrix = cam_matrix.transpose();
 
@@ -149,7 +149,7 @@ impl MultiviewEstimator {
             cam_matrix.column(2).as_slice(),
         ])?;
 
-        println!("{:?}", cam_matrix);
+        //println!("{:?}", cam_matrix);
 
         let mut inliers = Mat::default();
 
@@ -193,6 +193,17 @@ impl Estimator for MultiviewEstimator {
         let r = na::UnitQuaternion::from_matrix(&r).inverse();
         let (x, z, y) = r.euler_angles();
         let r = na::UnitQuaternion::from_euler_angles(x, y, z);
+
+        // Check if rotation is over 90 degrees. Generally, this should not be possible, but is
+        // caused by opencv acting weird.
+        // TODO: look into the behavior.
+        let r = if r.angle() > std::f32::consts::FRAC_PI_2 {
+            let (axis, angle) = r.axis_angle().unwrap();
+            let new_angle = (angle + std::f32::consts::PI) % (std::f32::consts::PI * 2.0);
+            na::UnitQuaternion::from_axis_angle(&axis, new_angle)
+        } else {
+            r
+        };
 
         let tm = t.magnitude();
 

@@ -215,6 +215,9 @@ impl FilePicker {
                         task.pick_file().await
                     };
 
+                    // rfd, or rather its GDK impl is buggy, and requires a sleep.
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+
                     tx.send(
                         file.map(|fh| path_map(fh.path()))
                             .as_ref()

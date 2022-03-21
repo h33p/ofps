@@ -38,6 +38,7 @@ pub enum FrameState {
 #[derive(Default, Clone)]
 pub struct EstimatorState {
     pub poses: Vec<(na::Point3<f32>, na::UnitQuaternion<f32>)>,
+    pub transforms: Vec<(na::Vector3<f32>, na::UnitQuaternion<f32>)>,
     pub layered_frames: Vec<(usize, Arc<Mutex<FrameState>>)>,
 }
 
@@ -73,10 +74,13 @@ impl EstimatorState {
         &mut self,
         pos: na::Point3<f32>,
         rot: na::UnitQuaternion<f32>,
+        tr: na::Vector3<f32>,
+        frot: na::UnitQuaternion<f32>,
         frame: Option<Arc<Mutex<FrameState>>>,
     ) {
         let idx = self.poses.len();
         self.poses.push((pos, rot));
+        self.transforms.push((tr, frot));
         if let Some(mat) = frame {
             self.layered_frames.push((idx, mat));
         }
@@ -98,27 +102,31 @@ impl EstimatorState {
     }
 
     fn remove_least_significant_frame(&mut self) {
-        let (frame, _) = self
-            .layered_frames
-            .iter()
-            .enumerate()
-            .map(|(i, s)| (i, self.poses[s.0].1))
-            .fold(None, |candidate, (frame, rot)| {
-                let dist = self
-                    .layered_frames
-                    .iter()
-                    .map(|s| self.poses[s.0].1.angle_to(&rot))
-                    .sum::<f32>();
+        let frame = if self.layered_frames.len() <= 2 {
+            0
+        } else {
+            self.layered_frames
+                .iter()
+                .enumerate()
+                .map(|(i, s)| (i, self.poses[s.0].1))
+                .fold(None, |candidate, (frame, rot)| {
+                    let dist = self
+                        .layered_frames
+                        .iter()
+                        .map(|s| self.poses[s.0].1.angle_to(&rot))
+                        .sum::<f32>();
 
-                if let Some((frame, cur_dist)) = candidate {
-                    if dist >= cur_dist {
-                        return Some((frame, cur_dist));
+                    if let Some((frame, cur_dist)) = candidate {
+                        if dist >= cur_dist {
+                            return Some((frame, cur_dist));
+                        }
                     }
-                }
 
-                Some((frame, dist))
-            })
-            .unwrap_or_default();
+                    Some((frame, dist))
+                })
+                .unwrap_or_default()
+                .0
+        };
 
         self.layered_frames.remove(frame);
     }
@@ -217,14 +225,14 @@ impl TrackingState {
             .filter_map(|(s, settings)| s.as_mut().zip(Some(settings)))
         {
             if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
-                if let Ok((rot, tr)) =
+                if let Ok((frot, tr)) =
                     estimator.estimate(&self.motion_vectors, &settings.camera, None)
                 {
                     if !est_settings.layer_frames {
                         estimator_state.layered_frames.clear();
                     }
 
-                    let (pos, rot) = estimator_state.apply_pose(tr, rot);
+                    let (pos, rot) = estimator_state.apply_pose(tr, frot);
                     let mat = if estimator_state.layer_frame(pos, rot, est_settings) {
                         if mat.is_none() && self.frame_height > 0 {
                             mat = Some(Arc::new(Mutex::new(FrameState::Pending(
@@ -246,7 +254,7 @@ impl TrackingState {
                         cnt += 1;
                     }
 
-                    estimator_state.push_pose(pos, rot, mat.cloned());
+                    estimator_state.push_pose(pos, rot, tr, frot, mat.cloned());
                 }
             }
         }

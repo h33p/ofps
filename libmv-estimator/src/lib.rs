@@ -181,7 +181,7 @@ impl Estimator for LibmvEstimator {
         // the rest of the codebase.
         let r = na::UnitQuaternion::from_matrix(&r);
         let (x, z, y) = r.euler_angles();
-        let r = na::UnitQuaternion::from_euler_angles(x, y, z);
+        let r = na::UnitQuaternion::from_euler_angles(x * -1.0, y * -1.0, z);
 
         let tm = t.magnitude();
 
