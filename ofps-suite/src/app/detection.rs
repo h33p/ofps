@@ -44,7 +44,11 @@ impl MotionDetectionState {
         AppWorker::new(Self::new(decoder), settings, MotionDetectionState::update)
     }
 
-    fn update(&mut self, out: &mut MotionDetectionOutput, settings: MotionDetectionSettings) {
+    fn update(
+        &mut self,
+        out: &mut MotionDetectionOutput,
+        settings: MotionDetectionSettings,
+    ) -> bool {
         out.motion_vectors.clear();
         out.frame.clear();
         out.frame_height = 0;
@@ -80,6 +84,8 @@ impl MotionDetectionState {
 
         out.motion_ranges.clear();
         out.motion_ranges.extend(self.motion_ranges.iter().copied());
+
+        true
     }
 }
 

@@ -176,7 +176,7 @@ impl TrackingState {
         }
     }
 
-    fn update(&mut self, out: &mut TrackingOutput, settings: TrackingSettings) {
+    fn update(&mut self, out: &mut TrackingOutput, settings: TrackingSettings) -> bool {
         // Ensure the states are of consistent size with the settings size.
         self.estimator_states.resize(settings.settings.len(), None);
 
@@ -204,11 +204,12 @@ impl TrackingState {
             Some((&mut self.frame_2, &mut self.frame_height_2)),
             0,
         ) {
-            Ok(true) | Err(_) => {
+            Ok(true) => {
                 std::mem::swap(&mut self.motion_vectors, &mut self.motion_vectors_2);
                 std::mem::swap(&mut self.frame, &mut self.frame_2);
                 std::mem::swap(&mut self.frame_height, &mut self.frame_height_2);
             }
+            Err(_) => return false,
             // Keep previous frame/motion if there was no motion vectors.
             _ => {}
         }
@@ -265,6 +266,8 @@ impl TrackingState {
         }
 
         out.estimators = self.estimator_states.clone();
+
+        true
     }
 }
 

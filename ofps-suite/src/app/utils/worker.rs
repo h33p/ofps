@@ -32,7 +32,7 @@ impl<T: Workable> AppWorker<T> {
     pub fn new(
         mut state: T,
         settings: T::Settings,
-        mut loop_fn: impl FnMut(&mut T, &mut T::Output, T::Settings) + Send + 'static,
+        mut loop_fn: impl FnMut(&mut T, &mut T::Output, T::Settings) -> bool + Send + 'static,
     ) -> Self {
         let output = Arc::new(RwLock::new(Default::default()));
         let settings = Arc::new(Mutex::new(settings));
@@ -48,7 +48,9 @@ impl<T: Workable> AppWorker<T> {
                     break;
                 } else {
                     let settings = (*settings.lock().unwrap()).clone();
-                    loop_fn(&mut state, &mut tmp_out, settings);
+                    if !loop_fn(&mut state, &mut tmp_out, settings) {
+                        break;
+                    }
                     if let Ok(mut output) = output.write() {
                         std::mem::swap(&mut *output, &mut tmp_out);
                     }
