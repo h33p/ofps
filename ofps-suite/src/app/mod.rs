@@ -219,7 +219,23 @@ impl FilePicker {
                     std::thread::sleep(std::time::Duration::from_millis(50));
 
                     tx.send(
-                        file.map(|fh| path_map(fh.path()))
+                        file.as_ref()
+                            .map(rfd::FileHandle::path)
+                            .map(|path| {
+                                // Convert to relative path if it starts with cwd
+                                if let Ok(curdir) = std::env::current_dir() {
+                                    if path.starts_with(&curdir) {
+                                        if let Some((curdir, path)) =
+                                            curdir.to_str().zip(path.to_str())
+                                        {
+                                            let p = &path[curdir.len()..];
+                                            return Path::new(p.trim_start_matches('/'));
+                                        }
+                                    }
+                                }
+                                path
+                            })
+                            .map(|path| path_map(path))
                             .as_ref()
                             .and_then(|f| f.to_str())
                             .map(<_>::into),
@@ -334,7 +350,10 @@ impl CreatePluginUi for DecoderPlugin {
                 },
                 || {
                     rfd::AsyncFileDialog::new()
-                        .add_filter("Video", &["mp4", "mov", "mkv", "h264"])
+                        .add_filter(
+                            "Video",
+                            &["mp4", "mov", "mkv", "h264", "MP4", "MOV", "MKV", "H264"],
+                        )
                         .add_filter("Optical Flow", &["flo"])
                         .add_filter("OFPS Motion Vectors", &["mvec"])
                 },
