@@ -85,6 +85,7 @@ pub struct UniformObject {
     data: UniformData,
     uniform_buffer: Buffer,
     uniform_bind_group: BindGroup,
+    bounds: Option<[f32; 4]>,
 }
 
 fn calc_view(pos: na::Point3<f32>, rot: na::UnitQuaternion<f32>) -> na::Matrix4<f32> {
@@ -120,6 +121,7 @@ impl UniformObject {
             data: Default::default(),
             uniform_buffer,
             uniform_bind_group,
+            bounds: None,
         }
     }
 
@@ -146,6 +148,18 @@ impl UniformObject {
         ];
         let mat = OPENGL_TO_WGPU_MATRIX * proj * view;
         self.data.proj.copy_from_slice(mat.as_slice());
+    }
+
+    /// Update viewport bounds.
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - horizontal start of the viewport.
+    /// * `y` - vertical start of the viewport.
+    /// * `w` - width of the viewport.
+    /// * `h` - height of the viewport.
+    pub fn update_bounds(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.bounds = Some([x, y, w, h]);
     }
 
     /// Get screen resolution.
@@ -214,6 +228,7 @@ impl Renderer {
     fn reset(&mut self) {
         self.obj_count = 0;
         self.objects.clear();
+        self.camera.bounds = None;
     }
 
     /// Update all buffers before rendering.
@@ -249,6 +264,10 @@ impl Renderer {
     ///
     /// * `render_pass` - render pass to draw in.
     pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        if let Some([x, y, w, h]) = self.camera.bounds {
+            render_pass.set_viewport(x, y, w, h, 0f32, 1f32);
+        }
+
         // First setup any buffers used.
         self.mesh_manager.set_buffers(render_pass);
 

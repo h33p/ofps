@@ -121,7 +121,7 @@ impl CameraController {
         }
     }
 
-    pub fn on_render(&mut self, renderer: &mut Renderer) {
+    pub fn on_render(&mut self, renderer: &mut Renderer, ctx: &Context) {
         // Initialise the indicator material if it hasn't already been.
         let move_material = if let Some(move_material) = self.move_material.clone() {
             move_material
@@ -131,11 +131,20 @@ impl CameraController {
             move_material
         };
 
+        let pp = ctx.pixels_per_point();
+        let available = ctx.available_rect();
+
         let uniform = renderer.uniform_mut();
 
         let dir = self.rot * na::matrix![0.0; -1.0; 0.0];
-        let res = uniform.resolution();
-        let aspect = res[0] / res[1];
+        let aspect = available.width() / available.height();
+
+        uniform.update_bounds(
+            pp * available.left(),
+            pp * available.top(),
+            pp * available.width(),
+            pp * available.height(),
+        );
 
         uniform.update_projection(
             StandardCamera::new(self.fov_y * aspect, self.fov_y).as_matrix(),

@@ -244,8 +244,6 @@ impl MotionTrackingApp {
     }
 
     fn render(&mut self, renderer: &mut Renderer) {
-        self.camera_controller.on_render(renderer);
-
         if self.draw_grid {
             let range = 10isize;
 
@@ -427,6 +425,7 @@ impl OfpsCtxApp for MotionTrackingApp {
         renderer: &mut Renderer,
     ) {
         self.camera_controller.update(ctx);
+        self.camera_controller.on_render(renderer, ctx);
     }
 
     fn update(
