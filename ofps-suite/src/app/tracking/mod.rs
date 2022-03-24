@@ -1,4 +1,8 @@
-use super::utils::camera_controller::CameraController;
+use super::utils::{
+    camera_controller::CameraController,
+    perf_stats::{perf_stats_options, perf_stats_windows, DrawPerfStats},
+    ui_misc::jlabel,
+};
 use super::{
     CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig, CreateEstimatorUiState,
     CreatePluginUi, FileLoader, FilePicker, OfpsAppContext, OfpsCtxApp,
@@ -76,12 +80,6 @@ impl Default for DrawGroundTruth {
             angles_window: false,
         }
     }
-}
-
-#[derive(Clone, Copy, Default, Serialize, Deserialize)]
-pub struct DrawPerfStats {
-    summary_window: bool,
-    graph_window: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -586,17 +584,7 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                     ui.separator();
 
-                    ui.heading("Performance:");
-
-                    ui.separator();
-
-                    Grid::new("draw_performance").show(ui, |ui| {
-                        ui.checkbox(&mut self.draw_perf_stats.summary_window, "Draw summary");
-                        ui.checkbox(&mut self.draw_perf_stats.graph_window, "Draw graphs");
-                        ui.end_row();
-                    });
-
-                    ui.separator();
+                    perf_stats_options(ui, &mut self.draw_perf_stats);
 
                     ui.heading("Estimators:");
 
@@ -708,124 +696,38 @@ impl OfpsCtxApp for MotionTrackingApp {
             Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
         ctx.set_visuals(visuals);
 
-        fn jlabel(ui: &mut Ui, label: impl Into<WidgetText>) {
-            ui.vertical_centered_justified(|ui| {
-                ui.label(label);
-            });
-        }
-
-        fn calc_perf(times: &[Duration]) -> (f32, f32) {
-            let total = times.iter().map(Duration::as_secs_f32).sum::<f32>();
-            let len = times.len();
-
-            let len = if len > 0 { len as f32 } else { 1.0 };
-
-            (total, total * 1000.0 / len)
-        }
-
         let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
+        let estimator_uis = &self.estimator_uis;
+        let create_decoder_state = &self.create_decoder_state;
 
-        let mut draw_perf_stats = self.draw_perf_stats;
+        let decoder = state.as_ref().map(|state| {
+            (
+                &create_decoder_state.config.selected_plugin,
+                &*state.decoder_times,
+                state,
+            )
+        });
 
-        egui::Window::new("Performance Summary")
-            .open(&mut draw_perf_stats.summary_window)
-            .show(ctx, |ui| {
-                ScrollArea::vertical()
-                    .auto_shrink([true, true])
-                    .show(ui, |ui| {
-                        Grid::new(format!("performance_ui"))
-                            .min_col_width(ui.spacing().interact_size.x + 25.0)
-                            .show(ui, |ui| {
-                                jlabel(ui, "Part");
-                                jlabel(ui, "Total Time");
-                                jlabel(ui, "Avg Time");
-                                ui.end_row();
+        let get_stats = decoder.as_ref().map(|(dnames, dtimes, state)| {
+            (
+                move || {
+                    state
+                        .estimators
+                        .iter()
+                        .enumerate()
+                        .filter_map(move |(i, est)| {
+                            estimator_uis
+                                .get(i)
+                                .map(|ui| &ui.config.selected_plugin)
+                                .zip(est.as_ref().map(|e| &*e.times))
+                        })
+                },
+                *dnames,
+                *dtimes,
+            )
+        });
 
-                                jlabel(
-                                    ui,
-                                    format!(
-                                        "Decoder {}",
-                                        self.create_decoder_state.config.selected_plugin
-                                    ),
-                                );
-                                if let Some(times) = state.as_ref().map(|s| &s.decoder_times) {
-                                    let (total_s, avg_ms) = calc_perf(times);
-                                    jlabel(ui, format!("{:.03} s", total_s));
-                                    jlabel(ui, format!("{:.03} ms", avg_ms));
-                                } else {
-                                    jlabel(ui, "-");
-                                    jlabel(ui, "-");
-                                }
-                                ui.end_row();
-
-                                for (i, (est, _)) in self
-                                    .estimator_uis
-                                    .iter()
-                                    .zip(self.app_settings.settings.iter())
-                                    .enumerate()
-                                    .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
-                                {
-                                    jlabel(ui, &est.config.selected_plugin);
-                                    if let Some(est) = state
-                                        .as_ref()
-                                        .and_then(|s| s.estimators.get(i).map(Option::as_ref))
-                                        .flatten()
-                                    {
-                                        let (total_s, avg_ms) = calc_perf(&est.times);
-                                        jlabel(ui, format!("{:.03} s", total_s));
-                                        jlabel(ui, format!("{:.03} ms", avg_ms));
-                                    } else {
-                                        for _ in 0..2 {
-                                            jlabel(ui, "-");
-                                        }
-                                    }
-
-                                    ui.end_row();
-                                }
-                            });
-                    });
-            });
-
-        egui::Window::new("Performance Graph")
-            .open(&mut draw_perf_stats.graph_window)
-            .show(ctx, |ui| {
-                if let Some(state) = &state {
-                    Plot::new("performance_graph")
-                        .legend(Default::default())
-                        //.link_axis(self.ground_truth_link_axis.clone())
-                        .show(ui, |plot_ui| {
-                            for (name, times) in state
-                                .estimators
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(i, est)| {
-                                    self.estimator_uis
-                                        .get(i)
-                                        .map(|ui| &ui.config.selected_plugin)
-                                        .zip(est.as_ref().map(|e| &e.times))
-                                })
-                                .chain(std::iter::once((
-                                    &self.create_decoder_state.config.selected_plugin,
-                                    &state.decoder_times,
-                                )))
-                            {
-                                let mut timevals = vec![];
-
-                                for (frame, time) in times.iter().enumerate() {
-                                    timevals.push(Value::new(
-                                        frame as f32,
-                                        time.as_secs_f32() * 1000.0,
-                                    ));
-                                }
-
-                                let vals = Values::from_values(timevals);
-                                plot_ui.line(Line::new(vals).name(name));
-                            }
-                        });
-                }
-            });
-
-        self.draw_perf_stats = draw_perf_stats;
+        perf_stats_windows(ctx, &mut self.draw_perf_stats, get_stats);
 
         if let Some(ground_truth) = &self.ground_truth.data {
             // Do copies, because that is easier than isolating self.
