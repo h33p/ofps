@@ -7,6 +7,7 @@ use std::sync::{
     mpsc::{self, Receiver, Sender},
     Arc, Mutex,
 };
+use std::time::{Duration, Instant};
 use wimrend::material::Material;
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -42,6 +43,7 @@ pub enum FrameState {
 pub struct EstimatorState {
     pub poses: Vec<(na::Point3<f32>, na::UnitQuaternion<f32>)>,
     pub transforms: Vec<(na::Vector3<f32>, na::UnitQuaternion<f32>)>,
+    pub times: Vec<Duration>,
     pub layered_frames: Vec<(usize, Arc<Mutex<FrameState>>)>,
     pub clear_count: usize,
 }
@@ -81,10 +83,14 @@ impl EstimatorState {
         tr: na::Vector3<f32>,
         frot: na::UnitQuaternion<f32>,
         frame: Option<Arc<Mutex<FrameState>>>,
+        time: Duration,
     ) {
         let idx = self.poses.len();
+
         self.poses.push((pos, rot));
         self.transforms.push((tr, frot));
+        self.times.push(time);
+
         if let Some(mat) = frame {
             self.layered_frames.push((idx, mat));
         }
@@ -139,6 +145,7 @@ impl EstimatorState {
 /// Tracking worker state (hidden from UI).
 pub struct TrackingState {
     decoder: DecoderPlugin,
+    decoder_times: Vec<Duration>,
     estimator_states: Vec<Option<EstimatorState>>,
     frames_to_load: Sender<Arc<Mutex<FrameState>>>,
     motion_vectors: Vec<MotionEntry>,
@@ -160,6 +167,7 @@ impl TrackingState {
     fn new(decoder: DecoderPlugin, frames_to_load: Sender<Arc<Mutex<FrameState>>>) -> Self {
         Self {
             decoder,
+            decoder_times: vec![],
             estimator_states: vec![],
             frames_to_load,
             motion_vectors: vec![],
@@ -203,6 +211,7 @@ impl TrackingState {
         self.frame_2.clear();
         self.frame_height_2 = 0;
 
+        let timer = Instant::now();
         match self.decoder.process_frame(
             &mut self.motion_vectors_2,
             Some((&mut self.frame_2, &mut self.frame_height_2)),
@@ -218,6 +227,7 @@ impl TrackingState {
             _ => {}
         }
 
+        self.decoder_times.push(timer.elapsed());
         self.frames += 1;
 
         let mut mat = None;
@@ -230,6 +240,7 @@ impl TrackingState {
             .filter_map(|(s, settings)| s.as_mut().zip(Some(settings)))
         {
             if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
+                let timer = Instant::now();
                 if let Ok((frot, tr)) =
                     estimator.estimate(&self.motion_vectors, &settings.camera, None)
                 {
@@ -260,7 +271,7 @@ impl TrackingState {
                         cnt += 1;
                     }
 
-                    estimator_state.push_pose(pos, rot, tr, frot, mat.cloned());
+                    estimator_state.push_pose(pos, rot, tr, frot, mat.cloned(), timer.elapsed());
                 }
             }
         }
@@ -271,6 +282,7 @@ impl TrackingState {
         }
 
         out.estimators = self.estimator_states.clone();
+        out.decoder_times = self.decoder_times.clone();
 
         true
     }
@@ -284,6 +296,7 @@ impl Workable for TrackingState {
 #[derive(Default)]
 pub struct TrackingOutput {
     pub estimators: Vec<Option<EstimatorState>>,
+    pub decoder_times: Vec<Duration>,
 }
 
 #[derive(Clone)]

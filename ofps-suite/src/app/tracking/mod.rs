@@ -12,6 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use std::time::Duration;
 use widgets::plot::{Arrows, Bar, BarChart, Line, LinkedAxisGroup, Plot, Value, Values};
 use wimrend::material::Material;
 use wimrend::mesh::Mesh;
@@ -77,6 +78,12 @@ impl Default for DrawGroundTruth {
     }
 }
 
+#[derive(Clone, Copy, Default, Serialize, Deserialize)]
+pub struct DrawPerfStats {
+    summary_window: bool,
+    graph_window: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct MotionTrackingConfig {
     #[serde(default)]
@@ -90,6 +97,8 @@ pub struct MotionTrackingConfig {
     ground_truth: (String, bool),
     #[serde(default)]
     draw_ground_truth: DrawGroundTruth,
+    #[serde(default)]
+    draw_perf_stats: DrawPerfStats,
     #[serde(default)]
     estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
     camera_fov_x: f32,
@@ -215,6 +224,7 @@ pub struct MotionTrackingApp {
     ground_truth: FileLoader<Vec<GroundTruth>>,
     ground_truth_link_axis: LinkedAxisGroup,
     draw_ground_truth: DrawGroundTruth,
+    draw_perf_stats: DrawPerfStats,
 }
 
 impl Default for MotionTrackingApp {
@@ -230,6 +240,7 @@ impl Default for MotionTrackingApp {
             ground_truth: Default::default(),
             ground_truth_link_axis: LinkedAxisGroup::x(),
             draw_ground_truth: Default::default(),
+            draw_perf_stats: Default::default(),
         }
     }
 }
@@ -346,6 +357,7 @@ impl MotionTrackingApp {
             view_dist,
             ground_truth,
             draw_ground_truth,
+            draw_perf_stats,
             estimators,
             camera_fov_x,
             camera_fov_y,
@@ -371,6 +383,7 @@ impl MotionTrackingApp {
         }
 
         self.draw_ground_truth = draw_ground_truth;
+        self.draw_perf_stats = draw_perf_stats;
 
         for (cfg, loaded, settings) in estimators {
             let mut ui = CreateEstimatorUiState::default();
@@ -425,6 +438,7 @@ impl MotionTrackingApp {
                 self.ground_truth.data.is_some(),
             ),
             draw_ground_truth: self.draw_ground_truth,
+            draw_perf_stats: self.draw_perf_stats,
             estimators: self
                 .estimator_uis
                 .iter()
@@ -572,6 +586,18 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                     ui.separator();
 
+                    ui.heading("Performance:");
+
+                    ui.separator();
+
+                    Grid::new("draw_performance").show(ui, |ui| {
+                        ui.checkbox(&mut self.draw_perf_stats.summary_window, "Draw summary");
+                        ui.checkbox(&mut self.draw_perf_stats.graph_window, "Draw graphs");
+                        ui.end_row();
+                    });
+
+                    ui.separator();
+
                     ui.heading("Estimators:");
 
                     ui.separator();
@@ -675,16 +701,133 @@ impl OfpsCtxApp for MotionTrackingApp {
                 });
         });
 
+        let mut visuals = ctx.style().visuals.clone();
+        let prev_visuals = visuals.clone();
+        let prev = visuals.widgets.noninteractive.bg_fill;
+        visuals.widgets.noninteractive.bg_fill =
+            Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
+        ctx.set_visuals(visuals);
+
+        fn jlabel(ui: &mut Ui, label: impl Into<WidgetText>) {
+            ui.vertical_centered_justified(|ui| {
+                ui.label(label);
+            });
+        }
+
+        fn calc_perf(times: &[Duration]) -> (f32, f32) {
+            let total = times.iter().map(Duration::as_secs_f32).sum::<f32>();
+            let len = times.len();
+
+            let len = if len > 0 { len as f32 } else { 1.0 };
+
+            (total, total * 1000.0 / len)
+        }
+
+        let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
+
+        let mut draw_perf_stats = self.draw_perf_stats;
+
+        egui::Window::new("Performance Summary")
+            .open(&mut draw_perf_stats.summary_window)
+            .show(ctx, |ui| {
+                ScrollArea::vertical()
+                    .auto_shrink([true, true])
+                    .show(ui, |ui| {
+                        Grid::new(format!("performance_ui"))
+                            .min_col_width(ui.spacing().interact_size.x + 25.0)
+                            .show(ui, |ui| {
+                                jlabel(ui, "Part");
+                                jlabel(ui, "Total Time");
+                                jlabel(ui, "Avg Time");
+                                ui.end_row();
+
+                                jlabel(
+                                    ui,
+                                    format!(
+                                        "Decoder {}",
+                                        self.create_decoder_state.config.selected_plugin
+                                    ),
+                                );
+                                if let Some(times) = state.as_ref().map(|s| &s.decoder_times) {
+                                    let (total_s, avg_ms) = calc_perf(times);
+                                    jlabel(ui, format!("{:.03} s", total_s));
+                                    jlabel(ui, format!("{:.03} ms", avg_ms));
+                                } else {
+                                    jlabel(ui, "-");
+                                    jlabel(ui, "-");
+                                }
+                                ui.end_row();
+
+                                for (i, (est, _)) in self
+                                    .estimator_uis
+                                    .iter()
+                                    .zip(self.app_settings.settings.iter())
+                                    .enumerate()
+                                    .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
+                                {
+                                    jlabel(ui, &est.config.selected_plugin);
+                                    if let Some(est) = state
+                                        .as_ref()
+                                        .and_then(|s| s.estimators.get(i).map(Option::as_ref))
+                                        .flatten()
+                                    {
+                                        let (total_s, avg_ms) = calc_perf(&est.times);
+                                        jlabel(ui, format!("{:.03} s", total_s));
+                                        jlabel(ui, format!("{:.03} ms", avg_ms));
+                                    } else {
+                                        for _ in 0..2 {
+                                            jlabel(ui, "-");
+                                        }
+                                    }
+
+                                    ui.end_row();
+                                }
+                            });
+                    });
+            });
+
+        egui::Window::new("Performance Graph")
+            .open(&mut draw_perf_stats.graph_window)
+            .show(ctx, |ui| {
+                if let Some(state) = &state {
+                    Plot::new("performance_graph")
+                        .legend(Default::default())
+                        //.link_axis(self.ground_truth_link_axis.clone())
+                        .show(ui, |plot_ui| {
+                            for (name, times) in state
+                                .estimators
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(i, est)| {
+                                    self.estimator_uis
+                                        .get(i)
+                                        .map(|ui| &ui.config.selected_plugin)
+                                        .zip(est.as_ref().map(|e| &e.times))
+                                })
+                                .chain(std::iter::once((
+                                    &self.create_decoder_state.config.selected_plugin,
+                                    &state.decoder_times,
+                                )))
+                            {
+                                let mut timevals = vec![];
+
+                                for (frame, time) in times.iter().enumerate() {
+                                    timevals.push(Value::new(
+                                        frame as f32,
+                                        time.as_secs_f32() * 1000.0,
+                                    ));
+                                }
+
+                                let vals = Values::from_values(timevals);
+                                plot_ui.line(Line::new(vals).name(name));
+                            }
+                        });
+                }
+            });
+
+        self.draw_perf_stats = draw_perf_stats;
+
         if let Some(ground_truth) = &self.ground_truth.data {
-            let mut visuals = ctx.style().visuals.clone();
-            let prev_visuals = visuals.clone();
-            let prev = visuals.widgets.noninteractive.bg_fill;
-            visuals.widgets.noninteractive.bg_fill =
-                Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
-            ctx.set_visuals(visuals);
-
-            let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
-
             // Do copies, because that is easier than isolating self.
             let mut draw_ground_truth = self.draw_ground_truth;
 
@@ -697,11 +840,6 @@ impl OfpsCtxApp for MotionTrackingApp {
                             Grid::new(format!("tracking_ui"))
                                 .min_col_width(ui.spacing().interact_size.x + 15.0)
                                 .show(ui, |ui| {
-                                    fn jlabel(ui: &mut Ui, label: impl Into<WidgetText>) {
-                                        ui.vertical_centered_justified(|ui| {
-                                            ui.label(label);
-                                        });
-                                    }
                                     jlabel(ui, "Estimator");
                                     jlabel(ui, "Combo");
                                     jlabel(ui, "Roll");
@@ -940,8 +1078,8 @@ impl OfpsCtxApp for MotionTrackingApp {
                 });
 
             self.draw_ground_truth = draw_ground_truth;
-
-            ctx.set_visuals(prev_visuals);
         }
+
+        ctx.set_visuals(prev_visuals);
     }
 }
