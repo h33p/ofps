@@ -1,13 +1,16 @@
-use super::utils::worker::{AppWorker, Workable};
-use super::{
-    CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, FilePicker, OfpsAppContext,
-    OfpsCtxApp,
+use super::utils::{
+    perf_stats::*,
+    ui_misc::transparent_windows,
+    worker::{AppWorker, Workable},
 };
+use super::widgets::{CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, FilePicker};
+use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
 use epi::Frame;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::Renderer;
 
@@ -16,6 +19,8 @@ pub struct MotionDetectionConfig {
     decoder: (CreateDecoderUiConfig, bool),
     settings: MotionDetectionSettings,
     overlay_mf: bool,
+    #[serde(default)]
+    draw_perf_stats: DrawPerfStats,
 }
 
 struct MotionDetectionState {
@@ -23,6 +28,8 @@ struct MotionDetectionState {
     detector: BlockMotionDetection,
     frames: usize,
     motion_ranges: Vec<(usize, usize)>,
+    detector_times: Vec<Duration>,
+    decoder_times: Vec<Duration>,
 }
 
 impl Workable for MotionDetectionState {
@@ -37,6 +44,8 @@ impl MotionDetectionState {
             detector: Default::default(),
             frames: 0,
             motion_ranges: vec![],
+            decoder_times: vec![],
+            detector_times: vec![],
         }
     }
 
@@ -53,6 +62,7 @@ impl MotionDetectionState {
         out.frame.clear();
         out.frame_height = 0;
 
+        let timer = Instant::now();
         if self
             .decoder
             .process_frame(
@@ -63,17 +73,22 @@ impl MotionDetectionState {
             .is_ok()
         {
             self.frames += 1;
+        } else {
+            return false;
         }
 
+        self.decoder_times.push(timer.elapsed());
         out.frames = self.frames;
 
         self.detector.min_size = settings.min_size;
         self.detector.subdivide = settings.subdivide;
         self.detector.target_motion = settings.target_motion;
 
+        let timer = Instant::now();
         out.motion = self
             .detector
             .detect_motion(out.motion_vectors.iter().copied());
+        self.detector_times.push(timer.elapsed());
 
         if out.motion.is_some() {
             match self.motion_ranges.last_mut() {
@@ -84,6 +99,13 @@ impl MotionDetectionState {
 
         out.motion_ranges.clear();
         out.motion_ranges.extend(self.motion_ranges.iter().copied());
+
+        out.detector_times.clear();
+        out.detector_times
+            .extend(self.detector_times.iter().copied());
+
+        out.decoder_times.clear();
+        out.decoder_times.extend(self.decoder_times.iter().copied());
 
         true
     }
@@ -114,6 +136,8 @@ struct MotionDetectionOutput {
     frames: usize,
     motion: Option<(usize, MotionField)>,
     motion_ranges: Vec<(usize, usize)>,
+    detector_times: Vec<Duration>,
+    decoder_times: Vec<Duration>,
 }
 
 #[derive(Default)]
@@ -124,6 +148,7 @@ pub struct MotionDetectionApp {
     overlay_mf: bool,
     settings: MotionDetectionSettings,
     config_state: FilePicker,
+    draw_perf_stats: DrawPerfStats,
 }
 
 impl MotionDetectionApp {
@@ -134,11 +159,13 @@ impl MotionDetectionApp {
             decoder,
             settings,
             overlay_mf,
+            draw_perf_stats,
         }: MotionDetectionConfig,
     ) {
         self.overlay_mf = overlay_mf;
         self.settings = settings;
         self.create_decoder_state.config = decoder.0;
+        self.draw_perf_stats = draw_perf_stats;
 
         self.app_state = None;
 
@@ -160,6 +187,7 @@ impl MotionDetectionApp {
             ),
             settings: self.settings,
             overlay_mf: self.overlay_mf,
+            draw_perf_stats: self.draw_perf_stats,
         }
     }
 }
@@ -180,7 +208,7 @@ impl OfpsCtxApp for MotionDetectionApp {
             egui::trace!(ui);
 
             let mut config_state = std::mem::take(&mut self.config_state);
-            config_state.run_config(
+            config_state.show_config(
                 ui,
                 "Detection",
                 Self::load_cfg,
@@ -216,6 +244,10 @@ impl OfpsCtxApp for MotionDetectionApp {
 
                         ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
                     });
+
+                    ui.separator();
+
+                    ui.heading("Decoder:");
 
                     ui.separator();
 
@@ -310,6 +342,8 @@ impl OfpsCtxApp for MotionDetectionApp {
                     }
 
                     ui.separator();
+
+                    perf_stats_options(ui, &mut self.draw_perf_stats);
                 });
         });
 
@@ -371,9 +405,36 @@ impl OfpsCtxApp for MotionDetectionApp {
             }
         });
 
+        let draw_perf_stats = &mut self.draw_perf_stats;
+        let create_decoder_state = &self.create_decoder_state;
+        let tex_handle = self.tex_handle.as_ref();
+        let overlay_mf = self.overlay_mf;
+
         egui::CentralPanel::default().show(ctx, |ui| {
+            transparent_windows(ctx, || {
+                let decoder = if let Some(Ok(state)) = &app_state_lock {
+                    Some((
+                        &create_decoder_state.config.selected_plugin,
+                        &*state.decoder_times,
+                        state,
+                    ))
+                } else {
+                    None
+                };
+
+                let get_stats = decoder.as_ref().map(|(dnames, dtimes, state)| {
+                    (
+                        move || std::iter::once(("detector", &*state.detector_times)),
+                        dnames.as_str(),
+                        *dtimes,
+                    )
+                });
+
+                perf_stats_windows(ctx, draw_perf_stats, get_stats);
+            });
+
             if let Some(Ok(state)) = &mut app_state_lock {
-                let rect = if let Some(th) = self.tex_handle.as_ref() {
+                let rect = if let Some(th) = tex_handle {
                     let aspect = th.aspect_ratio();
 
                     let aw = ui.available_width();
@@ -397,7 +458,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                     ui.clip_rect()
                 };
 
-                if let Some(((_, mf), true)) = state.motion.as_ref().zip(Some(self.overlay_mf)) {
+                if let Some(((_, mf), true)) = state.motion.as_ref().zip(Some(overlay_mf)) {
                     let painter = ui.painter_at(rect);
                     let (w, h) = mf.dim();
                     let w = rect.width() / w as f32;

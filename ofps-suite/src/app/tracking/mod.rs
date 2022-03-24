@@ -1,12 +1,13 @@
 use super::utils::{
     camera_controller::CameraController,
     perf_stats::{perf_stats_options, perf_stats_windows, DrawPerfStats},
-    ui_misc::jlabel,
+    ui_misc::{jlabel, transparent_windows},
 };
-use super::{
+use super::widgets::{
     CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig, CreateEstimatorUiState,
-    CreatePluginUi, FileLoader, FilePicker, OfpsAppContext, OfpsCtxApp,
+    CreatePluginUi, FileLoader, FilePicker,
 };
+use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
 use epi::Frame;
 use nalgebra as na;
@@ -483,7 +484,7 @@ impl OfpsCtxApp for MotionTrackingApp {
             egui::trace!(ui);
 
             let mut config_state = std::mem::take(&mut self.config_state);
-            if let Err(e) = config_state.run_config(
+            if let Err(e) = config_state.show_config(
                 ui,
                 "Tracking",
                 Self::load_cfg,
@@ -568,7 +569,7 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                     let _ =
                         self.ground_truth
-                            .run(ui, "ground_truth", GroundTruth::from_csv, || {
+                            .show(ui, "ground_truth", GroundTruth::from_csv, || {
                                 rfd::AsyncFileDialog::new().add_filter("CSV Files", &["csv"])
                             });
 
@@ -689,299 +690,308 @@ impl OfpsCtxApp for MotionTrackingApp {
                 });
         });
 
-        let mut visuals = ctx.style().visuals.clone();
-        let prev_visuals = visuals.clone();
-        let prev = visuals.widgets.noninteractive.bg_fill;
-        visuals.widgets.noninteractive.bg_fill =
-            Color32::from_rgba_unmultiplied(prev.r(), prev.g(), prev.b(), 100);
-        ctx.set_visuals(visuals);
+        transparent_windows(ctx, || {
+            let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
+            let estimator_uis = &self.estimator_uis;
+            let create_decoder_state = &self.create_decoder_state;
 
-        let state = self.app_state.as_ref().and_then(|a| a.worker.read().ok());
-        let estimator_uis = &self.estimator_uis;
-        let create_decoder_state = &self.create_decoder_state;
+            let decoder = state.as_ref().map(|state| {
+                (
+                    &create_decoder_state.config.selected_plugin,
+                    &*state.decoder_times,
+                    state,
+                )
+            });
 
-        let decoder = state.as_ref().map(|state| {
-            (
-                &create_decoder_state.config.selected_plugin,
-                &*state.decoder_times,
-                state,
-            )
-        });
+            let get_stats = decoder.as_ref().map(|(dnames, dtimes, state)| {
+                (
+                    move || {
+                        state
+                            .estimators
+                            .iter()
+                            .enumerate()
+                            .filter_map(move |(i, est)| {
+                                estimator_uis
+                                    .get(i)
+                                    .map(|ui| &ui.config.selected_plugin)
+                                    .zip(est.as_ref().map(|e| &*e.times))
+                            })
+                    },
+                    *dnames,
+                    *dtimes,
+                )
+            });
 
-        let get_stats = decoder.as_ref().map(|(dnames, dtimes, state)| {
-            (
-                move || {
-                    state
-                        .estimators
-                        .iter()
-                        .enumerate()
-                        .filter_map(move |(i, est)| {
-                            estimator_uis
-                                .get(i)
-                                .map(|ui| &ui.config.selected_plugin)
-                                .zip(est.as_ref().map(|e| &*e.times))
-                        })
-                },
-                *dnames,
-                *dtimes,
-            )
-        });
+            perf_stats_windows(ctx, &mut self.draw_perf_stats, get_stats);
 
-        perf_stats_windows(ctx, &mut self.draw_perf_stats, get_stats);
+            if let Some(ground_truth) = &self.ground_truth.data {
+                // Do copies, because that is easier than isolating self.
+                let mut draw_ground_truth = self.draw_ground_truth;
 
-        if let Some(ground_truth) = &self.ground_truth.data {
-            // Do copies, because that is easier than isolating self.
-            let mut draw_ground_truth = self.draw_ground_truth;
+                egui::Window::new("Error Summary")
+                    .open(&mut draw_ground_truth.summary_window)
+                    .show(ctx, |ui| {
+                        ScrollArea::vertical()
+                            .auto_shrink([true, true])
+                            .show(ui, |ui| {
+                                Grid::new(format!("tracking_ui"))
+                                    .min_col_width(ui.spacing().interact_size.x + 15.0)
+                                    .show(ui, |ui| {
+                                        jlabel(ui, "Estimator");
+                                        jlabel(ui, "Combo");
+                                        jlabel(ui, "Roll");
+                                        jlabel(ui, "Pitch");
+                                        jlabel(ui, "Yaw");
+                                        ui.end_row();
 
-            egui::Window::new("Error Summary")
-                .open(&mut draw_ground_truth.summary_window)
-                .show(ctx, |ui| {
-                    ScrollArea::vertical()
-                        .auto_shrink([true, true])
-                        .show(ui, |ui| {
-                            Grid::new(format!("tracking_ui"))
-                                .min_col_width(ui.spacing().interact_size.x + 15.0)
-                                .show(ui, |ui| {
-                                    jlabel(ui, "Estimator");
-                                    jlabel(ui, "Combo");
-                                    jlabel(ui, "Roll");
-                                    jlabel(ui, "Pitch");
-                                    jlabel(ui, "Yaw");
-                                    ui.end_row();
-
-                                    for (i, (est, _)) in self
-                                        .estimator_uis
-                                        .iter()
-                                        .zip(self.app_settings.settings.iter())
-                                        .enumerate()
-                                        .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
-                                    {
-                                        jlabel(ui, &est.config.selected_plugin);
-                                        if let Some(est) = state
-                                            .as_ref()
-                                            .and_then(|s| s.estimators.get(i).map(Option::as_ref))
-                                            .flatten()
+                                        for (i, (est, _)) in self
+                                            .estimator_uis
+                                            .iter()
+                                            .zip(self.app_settings.settings.iter())
+                                            .enumerate()
+                                            .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
                                         {
-                                            let (err, err_r, err_p, err_y) =
-                                                GroundTruth::calc_avg_err(
-                                                    &ground_truth,
-                                                    &est.transforms,
-                                                );
-                                            for v in [err, err_r, err_p, err_y] {
-                                                jlabel(ui, format!("{:.03}", v.to_degrees()));
+                                            jlabel(ui, &est.config.selected_plugin);
+                                            if let Some(est) = state
+                                                .as_ref()
+                                                .and_then(|s| {
+                                                    s.estimators.get(i).map(Option::as_ref)
+                                                })
+                                                .flatten()
+                                            {
+                                                let (err, err_r, err_p, err_y) =
+                                                    GroundTruth::calc_avg_err(
+                                                        &ground_truth,
+                                                        &est.transforms,
+                                                    );
+                                                for v in [err, err_r, err_p, err_y] {
+                                                    jlabel(ui, format!("{:.03}", v.to_degrees()));
+                                                }
+                                            } else {
+                                                for _ in 0..4 {
+                                                    jlabel(ui, "-");
+                                                }
                                             }
-                                        } else {
-                                            for _ in 0..4 {
-                                                jlabel(ui, "-");
+                                            ui.end_row();
+                                        }
+                                    });
+                            });
+
+                        if let Some(state) = &state {
+                            if ui.button("Export all stats").clicked() {
+                                let all_stats = state
+                                    .estimators
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(i, est)| {
+                                        self.estimator_uis
+                                            .get(i)
+                                            .map(|ui| ui.config.selected_plugin.clone())
+                                            .zip(est.as_ref().map(|est| {
+                                                GroundTruth::gen_stats(ground_truth, est)
+                                                    .collect::<Vec<_>>()
+                                            }))
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                std::thread::spawn(move || {
+                                    if let Err(e) = pollster::block_on(async move {
+                                        if let Some(dir) =
+                                            rfd::AsyncFileDialog::new().pick_folder().await
+                                        {
+                                            let dir = dir.path();
+                                            std::fs::create_dir_all(dir)?;
+                                            for (name, stats) in all_stats {
+                                                let mut path = dir.to_path_buf();
+                                                path.push(format!("{name}.csv"));
+                                                let file = std::fs::File::create(path)?;
+                                                let mut writer = csv::Writer::from_writer(file);
+                                                for stat in stats {
+                                                    writer.serialize(stat)?;
+                                                }
                                             }
                                         }
-                                        ui.end_row();
+                                        std::io::Result::Ok(())
+                                    }) {
+                                        log::error!("Error while exporting stats: {}", e);
                                     }
                                 });
-                        });
+                            }
+                        } else {
+                            ui.label("Start decoder to export");
+                        }
+                    });
 
-                    if let Some(state) = &state {
-                        if ui.button("Export all stats").clicked() {
-                            let all_stats = state
-                                .estimators
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(i, est)| {
-                                    self.estimator_uis
-                                        .get(i)
-                                        .map(|ui| ui.config.selected_plugin.clone())
-                                        .zip(est.as_ref().map(|est| {
-                                            GroundTruth::gen_stats(ground_truth, est)
-                                                .collect::<Vec<_>>()
-                                        }))
-                                })
-                                .collect::<Vec<_>>();
+                egui::Window::new("Rotation Angles")
+                    .open(&mut draw_ground_truth.angles_window)
+                    .show(ctx, |ui| {
+                        Plot::new("rotation_graphs")
+                            .legend(Default::default())
+                            .link_axis(self.ground_truth_link_axis.clone())
+                            .show(ui, |plot_ui| {
+                                let mut vals = vec![];
 
-                            std::thread::spawn(move || {
-                                if let Err(e) = pollster::block_on(async move {
-                                    if let Some(dir) =
-                                        rfd::AsyncFileDialog::new().pick_folder().await
+                                let mut gt = [vec![], vec![], vec![]];
+
+                                for truth in ground_truth {
+                                    let r = truth.rot();
+                                    // Again, swap pitch with roll
+                                    let (p, r, y) = r.euler_angles();
+
+                                    for (i, v) in [r, p, y].iter().enumerate() {
+                                        gt[i].push(Value::new(
+                                            (truth.frame - 1) as f32,
+                                            v.to_degrees(),
+                                        ));
+                                    }
+                                }
+
+                                vals.push(("Ground truth".to_string(), gt));
+
+                                if let Some(state) = &state {
+                                    for (name, est) in
+                                        state.estimators.iter().enumerate().filter_map(
+                                            |(i, est)| {
+                                                self.estimator_uis
+                                                    .get(i)
+                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .zip(est.as_ref())
+                                            },
+                                        )
                                     {
-                                        let dir = dir.path();
-                                        std::fs::create_dir_all(dir)?;
-                                        for (name, stats) in all_stats {
-                                            let mut path = dir.to_path_buf();
-                                            path.push(format!("{name}.csv"));
-                                            let file = std::fs::File::create(path)?;
-                                            let mut writer = csv::Writer::from_writer(file);
-                                            for stat in stats {
-                                                writer.serialize(stat)?;
+                                        let mut pred = [vec![], vec![], vec![]];
+
+                                        for (frame, (_, rot)) in est.poses.iter().enumerate() {
+                                            // Same swap here
+                                            let (p, r, y) = rot.euler_angles();
+                                            for (i, v) in [r, p, y].iter().enumerate() {
+                                                pred[i]
+                                                    .push(Value::new(frame as f32, v.to_degrees()));
                                             }
                                         }
+
+                                        vals.push((name.clone(), pred));
                                     }
-                                    std::io::Result::Ok(())
-                                }) {
-                                    log::error!("Error while exporting stats: {}", e);
+                                }
+
+                                for (name, v) in vals {
+                                    for (ty, v) in
+                                        IntoIterator::into_iter(["roll", "pitch", "yaw"]).zip(v)
+                                    {
+                                        let v = Values::from_values(v);
+                                        plot_ui.line(Line::new(v).name(format!("{name} {ty}")));
+                                    }
                                 }
                             });
+                    });
+
+                egui::Window::new("Error Graphs")
+                    .open(&mut draw_ground_truth.error_window)
+                    .show(ctx, |ui| {
+                        if let Some(state) = &state {
+                            Plot::new("error_graphs")
+                                .legend(Default::default())
+                                .link_axis(self.ground_truth_link_axis.clone())
+                                .show(ui, |plot_ui| {
+                                    for (name, est) in
+                                        state.estimators.iter().enumerate().filter_map(
+                                            |(i, est)| {
+                                                self.estimator_uis
+                                                    .get(i)
+                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .zip(est.as_ref())
+                                            },
+                                        )
+                                    {
+                                        let mut errs = [
+                                            ("total err", vec![]),
+                                            ("roll err", vec![]),
+                                            ("pitch err", vec![]),
+                                            ("yaw err", vec![]),
+                                        ];
+                                        for TrackingErrorStatistics {
+                                            frame,
+                                            error,
+                                            error_r,
+                                            error_p,
+                                            error_y,
+                                        } in
+                                            GroundTruth::calc_err(&ground_truth, &est.transforms)
+                                        {
+                                            for (i, err) in [error, error_r, error_p, error_y]
+                                                .iter()
+                                                .enumerate()
+                                            {
+                                                errs[i].1.push(Value::new(
+                                                    frame as f32,
+                                                    err.to_degrees(),
+                                                ));
+                                            }
+                                        }
+                                        for (plot_name, errs) in errs {
+                                            let errs = Values::from_values(errs);
+                                            plot_ui.line(
+                                                Line::new(errs).name(format!("{name} {plot_name}")),
+                                            );
+                                        }
+                                    }
+                                });
                         }
-                    } else {
-                        ui.label("Start decoder to export");
-                    }
-                });
+                    });
 
-            egui::Window::new("Rotation Angles")
-                .open(&mut draw_ground_truth.angles_window)
-                .show(ctx, |ui| {
-                    Plot::new("rotation_graphs")
-                        .legend(Default::default())
-                        .link_axis(self.ground_truth_link_axis.clone())
-                        .show(ui, |plot_ui| {
-                            let mut vals = vec![];
-
-                            let mut gt = [vec![], vec![], vec![]];
-
-                            for truth in ground_truth {
-                                let r = truth.rot();
-                                // Again, swap pitch with roll
-                                let (p, r, y) = r.euler_angles();
-
-                                for (i, v) in [r, p, y].iter().enumerate() {
-                                    gt[i]
-                                        .push(Value::new((truth.frame - 1) as f32, v.to_degrees()));
-                                }
-                            }
-
-                            vals.push(("Ground truth".to_string(), gt));
-
-                            if let Some(state) = &state {
-                                for (name, est) in
-                                    state.estimators.iter().enumerate().filter_map(|(i, est)| {
-                                        self.estimator_uis
-                                            .get(i)
-                                            .map(|ui| &ui.config.selected_plugin)
-                                            .zip(est.as_ref())
-                                    })
-                                {
-                                    let mut pred = [vec![], vec![], vec![]];
-
-                                    for (frame, (_, rot)) in est.poses.iter().enumerate() {
-                                        // Same swap here
-                                        let (p, r, y) = rot.euler_angles();
-                                        for (i, v) in [r, p, y].iter().enumerate() {
-                                            pred[i].push(Value::new(frame as f32, v.to_degrees()));
-                                        }
-                                    }
-
-                                    vals.push((name.clone(), pred));
-                                }
-                            }
-
-                            for (name, v) in vals {
-                                for (ty, v) in
-                                    IntoIterator::into_iter(["roll", "pitch", "yaw"]).zip(v)
-                                {
-                                    let v = Values::from_values(v);
-                                    plot_ui.line(Line::new(v).name(format!("{name} {ty}")));
-                                }
-                            }
-                        });
-                });
-
-            egui::Window::new("Error Graphs")
-                .open(&mut draw_ground_truth.error_window)
-                .show(ctx, |ui| {
-                    if let Some(state) = &state {
-                        Plot::new("error_graphs")
-                            .legend(Default::default())
-                            .link_axis(self.ground_truth_link_axis.clone())
-                            .show(ui, |plot_ui| {
-                                for (name, est) in
-                                    state.estimators.iter().enumerate().filter_map(|(i, est)| {
-                                        self.estimator_uis
-                                            .get(i)
-                                            .map(|ui| &ui.config.selected_plugin)
-                                            .zip(est.as_ref())
-                                    })
-                                {
-                                    let mut errs = [
-                                        ("total err", vec![]),
-                                        ("roll err", vec![]),
-                                        ("pitch err", vec![]),
-                                        ("yaw err", vec![]),
-                                    ];
-                                    for TrackingErrorStatistics {
-                                        frame,
-                                        error,
-                                        error_r,
-                                        error_p,
-                                        error_y,
-                                    } in GroundTruth::calc_err(&ground_truth, &est.transforms)
+                egui::Window::new("Delta Graphs")
+                    .open(&mut draw_ground_truth.delta_window)
+                    .show(ctx, |ui| {
+                        if let Some(state) = &state {
+                            Plot::new("delta_graphs")
+                                .legend(Default::default())
+                                .link_axis(self.ground_truth_link_axis.clone())
+                                .show(ui, |plot_ui| {
+                                    for (name, est) in
+                                        state.estimators.iter().enumerate().filter_map(
+                                            |(i, est)| {
+                                                self.estimator_uis
+                                                    .get(i)
+                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .zip(est.as_ref())
+                                            },
+                                        )
                                     {
-                                        for (i, err) in
-                                            [error, error_r, error_p, error_y].iter().enumerate()
+                                        let mut dts = [
+                                            ("total delta", vec![]),
+                                            ("roll delta", vec![]),
+                                            ("pitch delta", vec![]),
+                                            ("yaw delta", vec![]),
+                                        ];
+                                        for (frame, rot) in
+                                            GroundTruth::deltas(&ground_truth, &est.poses)
                                         {
-                                            errs[i]
-                                                .1
-                                                .push(Value::new(frame as f32, err.to_degrees()));
+                                            let delta = rot.angle();
+                                            let (delta_p, delta_r, delta_y) = rot.euler_angles();
+
+                                            for (i, dt) in [delta, delta_r, delta_p, delta_y]
+                                                .iter()
+                                                .enumerate()
+                                            {
+                                                dts[i].1.push(Value::new(
+                                                    frame as f32,
+                                                    dt.to_degrees(),
+                                                ));
+                                            }
+                                        }
+                                        for (plot_name, dts) in dts {
+                                            let dts = Values::from_values(dts);
+                                            plot_ui.line(
+                                                Line::new(dts).name(format!("{name} {plot_name}")),
+                                            );
                                         }
                                     }
-                                    for (plot_name, errs) in errs {
-                                        let errs = Values::from_values(errs);
-                                        plot_ui.line(
-                                            Line::new(errs).name(format!("{name} {plot_name}")),
-                                        );
-                                    }
-                                }
-                            });
-                    }
-                });
+                                });
+                        }
+                    });
 
-            egui::Window::new("Delta Graphs")
-                .open(&mut draw_ground_truth.delta_window)
-                .show(ctx, |ui| {
-                    if let Some(state) = &state {
-                        Plot::new("delta_graphs")
-                            .legend(Default::default())
-                            .link_axis(self.ground_truth_link_axis.clone())
-                            .show(ui, |plot_ui| {
-                                for (name, est) in
-                                    state.estimators.iter().enumerate().filter_map(|(i, est)| {
-                                        self.estimator_uis
-                                            .get(i)
-                                            .map(|ui| &ui.config.selected_plugin)
-                                            .zip(est.as_ref())
-                                    })
-                                {
-                                    let mut dts = [
-                                        ("total delta", vec![]),
-                                        ("roll delta", vec![]),
-                                        ("pitch delta", vec![]),
-                                        ("yaw delta", vec![]),
-                                    ];
-                                    for (frame, rot) in
-                                        GroundTruth::deltas(&ground_truth, &est.poses)
-                                    {
-                                        let delta = rot.angle();
-                                        let (delta_p, delta_r, delta_y) = rot.euler_angles();
-
-                                        for (i, dt) in
-                                            [delta, delta_r, delta_p, delta_y].iter().enumerate()
-                                        {
-                                            dts[i]
-                                                .1
-                                                .push(Value::new(frame as f32, dt.to_degrees()));
-                                        }
-                                    }
-                                    for (plot_name, dts) in dts {
-                                        let dts = Values::from_values(dts);
-                                        plot_ui.line(
-                                            Line::new(dts).name(format!("{name} {plot_name}")),
-                                        );
-                                    }
-                                }
-                            });
-                    }
-                });
-
-            self.draw_ground_truth = draw_ground_truth;
-        }
-
-        ctx.set_visuals(prev_visuals);
+                self.draw_ground_truth = draw_ground_truth;
+            }
+        });
     }
 }
