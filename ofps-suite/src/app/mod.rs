@@ -40,7 +40,10 @@ pub struct FileLoader<T> {
 
 impl<T: for<'a> Deserialize<'a>> FileLoader<T> {
     pub fn load<E>(&mut self, deserialize: impl Fn(File) -> std::result::Result<T, E>) {
-        if let Ok(Ok(new_data)) = File::open(&self.path).map(deserialize) {
+        if let Ok(Ok(new_data)) = File::open(&self.path).map(deserialize).map_err(|e| {
+            println!("{e}");
+            e
+        }) {
             self.data = Some(new_data);
         }
     }

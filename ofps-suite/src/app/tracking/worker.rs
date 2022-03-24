@@ -16,6 +16,8 @@ pub struct EstimatorSettings {
     pub layer_frames: bool,
     pub layer_angle_delta: f32,
     pub keep_frames: usize,
+    #[serde(skip)]
+    pub clear_count: usize,
 }
 
 impl Default for EstimatorSettings {
@@ -26,6 +28,7 @@ impl Default for EstimatorSettings {
             layer_frames: true,
             layer_angle_delta: 0.5,
             keep_frames: 100,
+            clear_count: 0,
         }
     }
 }
@@ -40,6 +43,7 @@ pub struct EstimatorState {
     pub poses: Vec<(na::Point3<f32>, na::UnitQuaternion<f32>)>,
     pub transforms: Vec<(na::Vector3<f32>, na::UnitQuaternion<f32>)>,
     pub layered_frames: Vec<(usize, Arc<Mutex<FrameState>>)>,
+    pub clear_count: usize,
 }
 
 impl EstimatorState {
@@ -229,8 +233,9 @@ impl TrackingState {
                 if let Ok((frot, tr)) =
                     estimator.estimate(&self.motion_vectors, &settings.camera, None)
                 {
-                    if !est_settings.layer_frames {
+                    if estimator_state.clear_count != est_settings.clear_count {
                         estimator_state.layered_frames.clear();
+                        estimator_state.clear_count = est_settings.clear_count;
                     }
 
                     let (pos, rot) = estimator_state.apply_pose(tr, frot);
