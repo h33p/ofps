@@ -1,6 +1,7 @@
 use super::utils::{
     perf_stats::*,
-    ui_misc::transparent_windows,
+    timer::Timer,
+    ui_misc::{realtime_processing_fn, transparent_windows},
     worker::{AppWorker, Workable},
 };
 use super::widgets::{CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, FilePicker};
@@ -30,6 +31,7 @@ struct MotionDetectionState {
     motion_ranges: Vec<(usize, usize)>,
     detector_times: Vec<Duration>,
     decoder_times: Vec<Duration>,
+    decoder_timer: Option<Timer>,
 }
 
 impl Workable for MotionDetectionState {
@@ -46,6 +48,7 @@ impl MotionDetectionState {
             motion_ranges: vec![],
             decoder_times: vec![],
             detector_times: vec![],
+            decoder_timer: None,
         }
     }
 
@@ -61,6 +64,15 @@ impl MotionDetectionState {
         out.motion_vectors.clear();
         out.frame.clear();
         out.frame_height = 0;
+
+        Timer::handle_option(
+            &mut self.decoder_timer,
+            settings.realtime_processing,
+            self.decoder
+                .get_framerate()
+                .filter(|f| *f > 0.0)
+                .map(|f| Duration::from_secs_f64(1.0 / f)),
+        );
 
         let timer = Instant::now();
         if self
@@ -116,6 +128,8 @@ struct MotionDetectionSettings {
     min_size: f32,
     subdivide: usize,
     target_motion: f32,
+    #[serde(default)]
+    realtime_processing: bool,
 }
 
 impl Default for MotionDetectionSettings {
@@ -124,6 +138,7 @@ impl Default for MotionDetectionSettings {
             min_size: 0.05,
             subdivide: 3,
             target_motion: 0.003,
+            realtime_processing: false,
         }
     }
 }
@@ -271,17 +286,28 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 }
                             }
 
-                            let clicked_close = ui.button("Close").clicked();
+                            let realtime_processing =
+                                realtime_processing_fn(&mut self.settings.realtime_processing);
 
-                            Grid::new("motion_info").show(ui, |ui| {
-                                ui.label("Motion:");
+                            let clicked_close = Grid::new("motion_info")
+                                .show(ui, |ui| {
+                                    let clicked_close = ui.button("Close").clicked();
 
-                                if let Some((motion, _)) = &state.motion {
-                                    ui.label(format!("{} blocks", motion));
-                                } else {
-                                    ui.label("None");
-                                }
-                            });
+                                    realtime_processing(ui);
+
+                                    ui.end_row();
+
+                                    ui.label("Motion:");
+
+                                    if let Some((motion, _)) = &state.motion {
+                                        ui.label(format!("{} blocks", motion));
+                                    } else {
+                                        ui.label("None");
+                                    }
+
+                                    clicked_close
+                                })
+                                .inner;
 
                             ui.label("Dominant motion:");
 
@@ -331,7 +357,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             ofps_ctx,
                             &mut self.create_decoder_state,
                             0,
-                            |_| {},
+                            realtime_processing_fn(&mut self.settings.realtime_processing),
                         ) {
                             Some(Ok(decoder)) => {
                                 self.app_state =

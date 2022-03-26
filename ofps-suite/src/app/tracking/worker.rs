@@ -1,4 +1,7 @@
-use super::super::utils::worker::{AppWorker, Workable};
+use super::super::utils::{
+    timer::Timer,
+    worker::{AppWorker, Workable},
+};
 use nalgebra as na;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
@@ -146,6 +149,7 @@ impl EstimatorState {
 pub struct TrackingState {
     decoder: DecoderPlugin,
     decoder_times: Vec<Duration>,
+    decoder_timer: Option<Timer>,
     estimator_states: Vec<Option<EstimatorState>>,
     frames_to_load: Sender<Arc<Mutex<FrameState>>>,
     motion_vectors: Vec<MotionEntry>,
@@ -168,6 +172,7 @@ impl TrackingState {
         Self {
             decoder,
             decoder_times: vec![],
+            decoder_timer: None,
             estimator_states: vec![],
             frames_to_load,
             motion_vectors: vec![],
@@ -210,6 +215,15 @@ impl TrackingState {
 
         self.frame_2.clear();
         self.frame_height_2 = 0;
+
+        Timer::handle_option(
+            &mut self.decoder_timer,
+            settings.realtime_processing,
+            self.decoder
+                .get_framerate()
+                .filter(|f| *f > 0.0)
+                .map(|f| Duration::from_secs_f64(1.0 / f)),
+        );
 
         let timer = Instant::now();
         match self.decoder.process_frame(
@@ -307,6 +321,7 @@ pub struct TrackingSettings {
         EstimatorSettings,
     )>,
     pub camera: StandardCamera,
+    pub realtime_processing: bool,
 }
 
 impl Default for TrackingSettings {
@@ -314,6 +329,7 @@ impl Default for TrackingSettings {
         Self {
             settings: vec![],
             camera: StandardCamera::new(39.6, 39.6 * 9.0 / 16.0),
+            realtime_processing: false,
         }
     }
 }

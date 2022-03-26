@@ -18,3 +18,14 @@ pub fn transparent_windows(ctx: &Context, handler: impl FnOnce()) {
 
     ctx.set_visuals(prev_visuals);
 }
+
+pub fn realtime_processing(ui: &mut Ui, realtime_processing: &mut bool) {
+    ui.checkbox(realtime_processing, "Realtime")
+        .on_hover_ui(|ui| {
+            ui.label("Do not process frames faster than the framerate of the video.");
+        });
+}
+
+pub fn realtime_processing_fn(realtime_processing: &mut bool) -> impl FnOnce(&mut Ui) + '_ {
+    move |ui| self::realtime_processing(ui, realtime_processing)
+}

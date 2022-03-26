@@ -1,7 +1,7 @@
 use super::utils::{
     camera_controller::CameraController,
     perf_stats::{perf_stats_options, perf_stats_windows, DrawPerfStats},
-    ui_misc::{jlabel, transparent_windows},
+    ui_misc::{jlabel, realtime_processing, realtime_processing_fn, transparent_windows},
 };
 use super::widgets::{
     CreateDecoderUiConfig, CreateDecoderUiState, CreateEstimatorUiConfig, CreateEstimatorUiState,
@@ -102,6 +102,8 @@ pub struct MotionTrackingConfig {
     estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
     camera_fov_x: f32,
     camera_fov_y: f32,
+    #[serde(default)]
+    realtime_processing: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -360,6 +362,7 @@ impl MotionTrackingApp {
             estimators,
             camera_fov_x,
             camera_fov_y,
+            realtime_processing,
         }: MotionTrackingConfig,
     ) {
         self.draw_grid = draw_grid;
@@ -374,6 +377,7 @@ impl MotionTrackingApp {
 
         self.app_settings.camera = StandardCamera::new(camera_fov_x, camera_fov_y);
         self.app_settings.settings.clear();
+        self.app_settings.realtime_processing = realtime_processing;
 
         self.ground_truth.data = None;
         self.ground_truth.path = ground_truth.0;
@@ -449,6 +453,7 @@ impl MotionTrackingApp {
                 .collect(),
             camera_fov_x,
             camera_fov_y,
+            realtime_processing: self.app_settings.realtime_processing,
         }
     }
 }
@@ -522,16 +527,19 @@ impl OfpsCtxApp for MotionTrackingApp {
                     ui.separator();
 
                     if let Some(_) = &mut self.app_state {
-                        if ui.button("Close decoder").clicked() {
-                            self.app_state = None;
-                        }
+                        Grid::new(format!("decoder_settings")).show(ui, |ui| {
+                            if ui.button("Close decoder").clicked() {
+                                self.app_state = None;
+                            }
+                            realtime_processing(ui, &mut self.app_settings.realtime_processing);
+                        });
                     } else {
                         match DecoderPlugin::create_plugin_ui(
                             ui,
                             ofps_ctx,
                             &mut self.create_decoder_state,
                             0,
-                            |_| {},
+                            realtime_processing_fn(&mut self.app_settings.realtime_processing),
                         ) {
                             Some(Ok(decoder)) => {
                                 self.app_state =
