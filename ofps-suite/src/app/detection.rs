@@ -12,6 +12,7 @@ use super::widgets::{
 use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
 use epi::Frame;
+use itertools::*;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,14 +21,33 @@ use std::time::{Duration, Instant};
 use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
 use wimrend::Renderer;
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct MotionDetectionAppSettings {
+    worker: MotionDetectionSettings,
+    overlay_mf: bool,
+    max_frame_gap: usize,
+    min_frames: usize,
+    #[serde(default)]
+    draw_perf_stats: DrawPerfStats,
+}
+
+impl Default for MotionDetectionAppSettings {
+    fn default() -> Self {
+        Self {
+            worker: Default::default(),
+            overlay_mf: false,
+            max_frame_gap: 2,
+            min_frames: 2,
+            draw_perf_stats: Default::default(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct MotionDetectionConfig {
     decoder: (CreateDecoderUiConfig, bool),
     detector: (CreateDetectorUiConfig, bool),
-    settings: MotionDetectionSettings,
-    overlay_mf: bool,
-    #[serde(default)]
-    draw_perf_stats: DrawPerfStats,
+    settings: MotionDetectionAppSettings,
 }
 
 struct MotionDetectionState {
@@ -167,6 +187,26 @@ struct MotionDetectionOutput {
     detector_properties: BTreeMap<String, Property>,
 }
 
+impl MotionDetectionOutput {
+    fn filtered_motion_ranges(
+        &self,
+        max_frame_gap: usize,
+        min_frames: usize,
+    ) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.motion_ranges
+            .iter()
+            .copied()
+            .coalesce(move |(a1, a2), (b1, b2)| {
+                if b1 - a2 <= max_frame_gap {
+                    Ok((a1, b2))
+                } else {
+                    Err(((a1, a2), (b1, b2)))
+                }
+            })
+            .filter(move |(s, e)| e - s >= min_frames)
+    }
+}
+
 #[derive(Default)]
 pub struct MotionDetectionApp {
     create_decoder_state: CreateDecoderUiState,
@@ -175,10 +215,8 @@ pub struct MotionDetectionApp {
     pending_decoder: Option<DecoderPlugin>,
     pending_detector: Option<DetectorPlugin>,
     tex_handle: Option<TextureHandle>,
-    overlay_mf: bool,
-    settings: MotionDetectionSettings,
+    settings: MotionDetectionAppSettings,
     config_state: FilePicker,
-    draw_perf_stats: DrawPerfStats,
 }
 
 impl MotionDetectionApp {
@@ -189,14 +227,10 @@ impl MotionDetectionApp {
             decoder,
             detector,
             settings,
-            overlay_mf,
-            draw_perf_stats,
         }: MotionDetectionConfig,
     ) {
-        self.overlay_mf = overlay_mf;
         self.settings = settings;
         self.create_decoder_state.config = decoder.0;
-        self.draw_perf_stats = draw_perf_stats;
 
         self.app_state = None;
 
@@ -222,8 +256,6 @@ impl MotionDetectionApp {
                 self.app_state.is_some() || self.pending_detector.is_some(),
             ),
             settings: self.settings.clone(),
-            overlay_mf: self.overlay_mf,
-            draw_perf_stats: self.draw_perf_stats,
         }
     }
 }
@@ -264,13 +296,16 @@ impl OfpsCtxApp for MotionDetectionApp {
                     ui.separator();
 
                     if let Some(app_state) = &self.app_state {
-                        let _ = app_state.settings().map(|mut s| *s = self.settings.clone());
+                        let _ = app_state
+                            .settings()
+                            .map(|mut s| *s = self.settings.worker.clone());
 
                         let mut app_state_lock = app_state.read();
 
                         if let Ok(state) = &mut app_state_lock {
-                            let realtime_processing =
-                                realtime_processing_fn(&mut self.settings.realtime_processing);
+                            let realtime_processing = realtime_processing_fn(
+                                &mut self.settings.worker.realtime_processing,
+                            );
 
                             let clicked_close = Grid::new("detector_options")
                                 .show(ui, |ui| {
@@ -287,7 +322,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             properties_grid_ui(
                                 ui,
                                 "decoder_properties",
-                                &mut self.settings.decoder_properties,
+                                &mut self.settings.worker.decoder_properties,
                                 Some(&state.decoder_properties),
                             );
 
@@ -314,7 +349,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             properties_grid_ui(
                                 ui,
                                 "decoder_properties",
-                                &mut self.settings.decoder_properties,
+                                &mut self.settings.worker.decoder_properties,
                                 Some(&props),
                             );
 
@@ -329,7 +364,9 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 ofps_ctx,
                                 &mut self.create_decoder_state,
                                 0,
-                                realtime_processing_fn(&mut self.settings.realtime_processing),
+                                realtime_processing_fn(
+                                    &mut self.settings.worker.realtime_processing,
+                                ),
                             ) {
                                 Some(Ok(decoder)) => {
                                     self.pending_decoder = Some(decoder);
@@ -340,7 +377,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             properties_grid_ui(
                                 ui,
                                 "decoder_properties",
-                                &mut self.settings.decoder_properties,
+                                &mut self.settings.worker.decoder_properties,
                                 None,
                             );
                         }
@@ -348,20 +385,31 @@ impl OfpsCtxApp for MotionDetectionApp {
 
                     ui.separator();
 
-                    perf_stats_options(ui, &mut self.draw_perf_stats);
+                    perf_stats_options(ui, &mut self.settings.draw_perf_stats);
 
                     let detector_props_ui =
                         |ui: &mut Ui,
-                         settings: &mut MotionDetectionSettings,
-                         detector_properties,
-                         overlay_mf| {
-                            properties_grid_ui(
-                                ui,
-                                "detector_properties",
-                                &mut settings.detector_properties,
-                                detector_properties,
-                            );
-                            ui.checkbox(overlay_mf, "Overlay Motion");
+                         settings: &mut MotionDetectionAppSettings,
+                         detector_properties| {
+                            Grid::new("detector_properties").show(ui, |ui| {
+                                properties_ui(
+                                    ui,
+                                    &mut settings.worker.detector_properties,
+                                    detector_properties,
+                                );
+
+                                ui.label("Max gap:");
+                                ui.add(Slider::new(&mut settings.max_frame_gap, 0..=200));
+
+                                ui.end_row();
+
+                                ui.label("Min frames:");
+                                ui.add(Slider::new(&mut settings.min_frames, 1..=200));
+
+                                ui.end_row();
+
+                                ui.checkbox(&mut settings.overlay_mf, "Overlay Motion");
+                            });
                         };
 
                     ui.heading("Detector:");
@@ -379,12 +427,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             .map(|(n, p)| (n.to_string(), p))
                             .collect();
 
-                        detector_props_ui(
-                            ui,
-                            &mut self.settings,
-                            Some(&props),
-                            &mut self.overlay_mf,
-                        );
+                        detector_props_ui(ui, &mut self.settings, Some(&props));
 
                         if clicked_close {
                             self.pending_detector = None;
@@ -430,7 +473,6 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 ui,
                                 &mut self.settings,
                                 output.as_ref().map(|a| &a.detector_properties),
-                                &mut self.overlay_mf,
                             );
 
                             ui.label("Dominant motion:");
@@ -485,7 +527,6 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 ui,
                                 &mut self.settings,
                                 output.as_ref().map(|a| &a.detector_properties),
-                                &mut self.overlay_mf,
                             );
 
                             false
@@ -508,7 +549,7 @@ impl OfpsCtxApp for MotionDetectionApp {
             self.app_state = Some(MotionDetectionState::worker(
                 decoder,
                 detector,
-                self.settings.clone(),
+                self.settings.worker.clone(),
             ));
         }
 
@@ -540,9 +581,10 @@ impl OfpsCtxApp for MotionDetectionApp {
                             plot_ui.bar_chart(
                                 BarChart::new(
                                     state
-                                        .motion_ranges
-                                        .iter()
-                                        .copied()
+                                        .filtered_motion_ranges(
+                                            self.settings.max_frame_gap,
+                                            self.settings.min_frames,
+                                        )
                                         .flat_map(|(s, e)| {
                                             let s = s as f64;
                                             let e = e as f64;
@@ -570,10 +612,10 @@ impl OfpsCtxApp for MotionDetectionApp {
             }
         });
 
-        let draw_perf_stats = &mut self.draw_perf_stats;
+        let draw_perf_stats = &mut self.settings.draw_perf_stats;
         let create_decoder_state = &self.create_decoder_state;
         let tex_handle = self.tex_handle.as_ref();
-        let overlay_mf = self.overlay_mf;
+        let overlay_mf = self.settings.overlay_mf;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             transparent_windows(ctx, || {
