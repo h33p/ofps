@@ -37,7 +37,7 @@ pub fn perf_stats_windows<
     'a,
     F: Fn() -> I,
     I: Iterator<Item = (T, &'a [Duration])>,
-    T: Into<WidgetText> + Copy + ToString + std::fmt::Display,
+    T: Into<WidgetText> + Clone + ToString + std::fmt::Display,
 >(
     ctx: &Context,
     draw_perf_stats: &mut DrawPerfStats,
@@ -84,21 +84,18 @@ pub fn perf_stats_windows<
 
                     if let Some((get_stats, dec_name, dec_times)) = &estimator_and_decoder_stats {
                         if ui.button("Export all stats").clicked() {
-                            let mut all_stats =
-                                std::iter::once(("decoder".to_string(), *dec_times))
-                                    .chain(
-                                        get_stats().map(|(name, times)| (name.to_string(), times)),
+                            let all_stats = std::iter::once(("decoder".to_string(), *dec_times))
+                                .chain(get_stats().map(|(name, times)| (name.to_string(), times)))
+                                .map(|(name, times)| {
+                                    (
+                                        name,
+                                        times
+                                            .iter()
+                                            .map(|d| d.as_secs_f32() * 1000.0)
+                                            .collect::<Vec<_>>(),
                                     )
-                                    .map(|(name, times)| {
-                                        (
-                                            name,
-                                            times
-                                                .iter()
-                                                .map(|d| d.as_secs_f32() * 1000.0)
-                                                .collect::<Vec<_>>(),
-                                        )
-                                    })
-                                    .collect::<Vec<_>>();
+                                })
+                                .collect::<Vec<_>>();
 
                             let dec_name = dec_name.to_string();
 
@@ -140,7 +137,7 @@ pub fn perf_stats_windows<
                     //.link_axis(self.ground_truth_link_axis.clone())
                     .show(ui, |plot_ui| {
                         for (name, times) in
-                            std::iter::once((*dec_name, *dec_times)).chain(get_stats())
+                            std::iter::once((dec_name.clone(), *dec_times)).chain(get_stats())
                         {
                             let mut timevals = vec![];
 

@@ -201,7 +201,7 @@ fn solve_ypr_ransac(
         if inliers.len() > max_inliers {
             best_fit = solve_ypr_given(inliers.as_slice());
             max_inliers = inliers.len();
-            println!("{} | {}", max_inliers, best_fit);
+            //jkprintln!("{} | {}", max_inliers, best_fit);
         }
     }
 

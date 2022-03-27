@@ -8,10 +8,11 @@ use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{
-    atomic::AtomicBool,
-    mpsc::{self, Receiver, Sender},
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver, Sender, SyncSender},
     Arc, Mutex,
 };
+use std::thread::{spawn, JoinHandle};
 use std::time::{Duration, Instant};
 use wimrend::material::Material;
 
@@ -151,19 +152,126 @@ impl EstimatorState {
     }
 }
 
+struct DecoderResult {
+    frame: Result<(MotionVectors, Vec<RGBA>, usize)>,
+    time: Duration,
+    props: BTreeMap<String, Property>,
+}
+
+#[derive(Default)]
+struct DecoderSettings {
+    props: BTreeMap<String, Property>,
+    realtime_processing: bool,
+}
+
+fn decoder_job(
+    mut decoder: DecoderPlugin,
+    flag: Arc<AtomicBool>,
+    sender: SyncSender<DecoderResult>,
+    settings: Arc<Mutex<DecoderSettings>>,
+) {
+    let mut motion_vectors = vec![];
+    let mut motion_vectors_2 = vec![];
+    let mut frame = vec![];
+    let mut frame_2 = vec![];
+    let mut frame_height = 0;
+    let mut frame_height_2;
+    let mut decoder_timer = None;
+
+    while flag.load(Ordering::Relaxed) {
+        let timer = Instant::now();
+
+        let mut props = Default::default();
+
+        if let Ok(settings) = settings.lock() {
+            transfer_props(decoder.props_mut(), &settings.props, &mut props);
+
+            Timer::handle_option(
+                &mut decoder_timer,
+                settings.realtime_processing,
+                decoder
+                    .get_framerate()
+                    .filter(|f| *f > 0.0)
+                    .map(|f| Duration::from_secs_f64(1.0 / f)),
+            );
+        }
+
+        // Get the motion field.
+        motion_vectors_2.clear();
+
+        frame_2.clear();
+        frame_height_2 = 0;
+
+        let frame = match decoder.process_frame(
+            &mut motion_vectors_2,
+            Some((&mut frame_2, &mut frame_height_2)),
+            0,
+        ) {
+            Ok(s) => {
+                if s {
+                    std::mem::swap(&mut motion_vectors, &mut motion_vectors_2);
+                    std::mem::swap(&mut frame, &mut frame_2);
+                    std::mem::swap(&mut frame_height, &mut frame_height_2);
+                }
+
+                Ok((motion_vectors.clone(), frame.clone(), frame_height))
+            }
+            Err(e) => Err(e),
+        };
+
+        let time = timer.elapsed();
+
+        if sender.send(DecoderResult { frame, time, props }).is_err() {
+            break;
+        }
+    }
+}
+
+struct DecoderJob {
+    flag: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    results: Receiver<DecoderResult>,
+    settings: Arc<Mutex<DecoderSettings>>,
+}
+
+impl Drop for DecoderJob {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Relaxed);
+
+        if let Some(handle) = self.handle.take() {
+            handle.join().unwrap();
+        }
+    }
+}
+
+impl From<DecoderPlugin> for DecoderJob {
+    fn from(decoder: DecoderPlugin) -> Self {
+        let flag = Arc::new(AtomicBool::new(true));
+
+        let (sender, results) = mpsc::sync_channel(0);
+        let settings = Arc::new(Mutex::new(Default::default()));
+
+        let handle = Some({
+            let flag = flag.clone();
+            let settings = settings.clone();
+            spawn(move || decoder_job(decoder, flag, sender, settings))
+        });
+
+        Self {
+            flag,
+            handle,
+            results,
+            settings,
+        }
+    }
+}
+
 /// Tracking worker state (hidden from UI).
 pub struct TrackingState {
-    decoder: DecoderPlugin,
+    decoder: DecoderJob,
     decoder_times: Vec<Duration>,
-    decoder_timer: Option<Timer>,
     estimator_states: Vec<Option<EstimatorState>>,
     frames_to_load: Sender<Arc<Mutex<FrameState>>>,
-    motion_vectors: Vec<MotionEntry>,
-    motion_vectors_2: Vec<MotionEntry>,
-    frame: Vec<RGBA>,
-    frame_2: Vec<RGBA>,
-    frame_height: usize,
-    frame_height_2: usize,
     frames: usize,
 }
 
@@ -176,17 +284,10 @@ pub struct TrackingWorker {
 impl TrackingState {
     fn new(decoder: DecoderPlugin, frames_to_load: Sender<Arc<Mutex<FrameState>>>) -> Self {
         Self {
-            decoder,
+            decoder: decoder.into(),
             decoder_times: vec![],
-            decoder_timer: None,
             estimator_states: vec![],
             frames_to_load,
-            motion_vectors: vec![],
-            motion_vectors_2: vec![],
-            frame: vec![],
-            frame_2: vec![],
-            frame_height: 0,
-            frame_height_2: 0,
             frames: 0,
         }
     }
@@ -216,44 +317,23 @@ impl TrackingState {
             }
         }
 
-        // Get the motion field.
-        self.motion_vectors_2.clear();
-
-        self.frame_2.clear();
-        self.frame_height_2 = 0;
-
-        Timer::handle_option(
-            &mut self.decoder_timer,
-            settings.realtime_processing,
-            self.decoder
-                .get_framerate()
-                .filter(|f| *f > 0.0)
-                .map(|f| Duration::from_secs_f64(1.0 / f)),
-        );
-
-        let timer = Instant::now();
-        match self.decoder.process_frame(
-            &mut self.motion_vectors_2,
-            Some((&mut self.frame_2, &mut self.frame_height_2)),
-            0,
-        ) {
-            Ok(true) => {
-                std::mem::swap(&mut self.motion_vectors, &mut self.motion_vectors_2);
-                std::mem::swap(&mut self.frame, &mut self.frame_2);
-                std::mem::swap(&mut self.frame_height, &mut self.frame_height_2);
-            }
-            Err(_) => return false,
-            // Keep previous frame/motion if there was no motion vectors.
-            _ => {}
+        if let Ok(mut dec_settings) = self.decoder.settings.lock() {
+            dec_settings.props = settings.decoder_properties;
+            dec_settings.realtime_processing = settings.realtime_processing;
         }
 
-        transfer_props(
-            self.decoder.props_mut(),
-            &settings.decoder_properties,
-            &mut out.decoder_properties,
-        );
+        let (motion_vectors, frame, frame_height, time) = match self.decoder.results.recv() {
+            Ok(DecoderResult { frame, time, props }) => {
+                out.decoder_properties = props;
+                match frame {
+                    Ok((mv, f, fh)) => (mv, f, fh, time),
+                    Err(_) => return false,
+                }
+            }
+            Err(_) => return false,
+        };
 
-        self.decoder_times.push(timer.elapsed());
+        self.decoder_times.push(time);
         self.frames += 1;
 
         let mut mat = None;
@@ -273,8 +353,7 @@ impl TrackingState {
                 );
 
                 let timer = Instant::now();
-                if let Ok((frot, tr)) =
-                    estimator.estimate(&self.motion_vectors, &settings.camera, None)
+                if let Ok((frot, tr)) = estimator.estimate(&motion_vectors, &settings.camera, None)
                 {
                     if estimator_state.clear_count != est_settings.clear_count {
                         estimator_state.layered_frames.clear();
@@ -283,10 +362,10 @@ impl TrackingState {
 
                     let (pos, rot) = estimator_state.apply_pose(tr, frot);
                     let mat = if estimator_state.layer_frame(pos, rot, est_settings) {
-                        if mat.is_none() && self.frame_height > 0 {
+                        if mat.is_none() && frame_height > 0 {
                             mat = Some(Arc::new(Mutex::new(FrameState::Pending(
-                                self.frame.clone(),
-                                self.frame_height,
+                                frame.clone(),
+                                frame_height,
                             ))));
                         }
 

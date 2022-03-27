@@ -744,13 +744,13 @@ impl OfpsCtxApp for MotionTrackingApp {
 
             let decoder = state.as_ref().map(|state| {
                 (
-                    &create_decoder_state.config.selected_plugin,
+                    create_decoder_state.config.selected_plugin.clone(),
                     &*state.decoder_times,
                     state,
                 )
             });
 
-            let get_stats = decoder.as_ref().map(|(dnames, dtimes, state)| {
+            let get_stats = decoder.map(|(dnames, dtimes, state)| {
                 (
                     move || {
                         state
@@ -760,12 +760,12 @@ impl OfpsCtxApp for MotionTrackingApp {
                             .filter_map(move |(i, est)| {
                                 estimator_uis
                                     .get(i)
-                                    .map(|ui| &ui.config.selected_plugin)
+                                    .map(|ui| format!("{}_{i}", ui.config.selected_plugin))
                                     .zip(est.as_ref().map(|e| &*e.times))
                             })
                     },
-                    *dnames,
-                    *dtimes,
+                    dnames,
+                    dtimes,
                 )
             });
 
@@ -782,7 +782,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                             .auto_shrink([true, true])
                             .show(ui, |ui| {
                                 Grid::new(format!("tracking_ui"))
-                                    .min_col_width(ui.spacing().interact_size.x + 15.0)
+                                    .min_col_width(ui.spacing().interact_size.x + 20.0)
                                     .show(ui, |ui| {
                                         jlabel(ui, "Estimator");
                                         jlabel(ui, "Combo");
@@ -798,7 +798,10 @@ impl OfpsCtxApp for MotionTrackingApp {
                                             .enumerate()
                                             .filter(|(_, (_, set))| set.1.load(Ordering::Relaxed))
                                         {
-                                            jlabel(ui, &est.config.selected_plugin);
+                                            jlabel(
+                                                ui,
+                                                format!("{}_{i}", est.config.selected_plugin),
+                                            );
                                             if let Some(est) = state
                                                 .as_ref()
                                                 .and_then(|s| {
@@ -833,7 +836,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                                     .filter_map(|(i, est)| {
                                         self.estimator_uis
                                             .get(i)
-                                            .map(|ui| ui.config.selected_plugin.clone())
+                                            .map(|ui| {
+                                                format!("{}_{i}", ui.config.selected_plugin.clone())
+                                            })
                                             .zip(est.as_ref().map(|est| {
                                                 GroundTruth::gen_stats(ground_truth, est)
                                                     .collect::<Vec<_>>()
@@ -901,7 +906,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                                             |(i, est)| {
                                                 self.estimator_uis
                                                     .get(i)
-                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .map(|ui| {
+                                                        format!("{}_{i}", ui.config.selected_plugin)
+                                                    })
                                                     .zip(est.as_ref())
                                             },
                                         )
@@ -945,7 +952,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                                             |(i, est)| {
                                                 self.estimator_uis
                                                     .get(i)
-                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .map(|ui| {
+                                                        format!("{}_{i}", ui.config.selected_plugin)
+                                                    })
                                                     .zip(est.as_ref())
                                             },
                                         )
@@ -999,7 +1008,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                                             |(i, est)| {
                                                 self.estimator_uis
                                                     .get(i)
-                                                    .map(|ui| &ui.config.selected_plugin)
+                                                    .map(|ui| {
+                                                        format!("{}_{i}", ui.config.selected_plugin)
+                                                    })
                                                     .zip(est.as_ref())
                                             },
                                         )
