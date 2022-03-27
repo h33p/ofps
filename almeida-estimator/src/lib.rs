@@ -49,9 +49,23 @@ impl MotionModel for StandardCamera {
 /// This estimator only produces rotational output, and no translation.
 #[derive(Default)]
 pub struct AlmeidaEstimator {
-    /// num_iters if ransac is used. `None` to perform
-    /// least squares minimisation solution.
-    ransac_options: Option<usize>,
+    /// True if ransac is used. False to perform least
+    /// squares minimisation solution.
+    use_ransac: bool,
+    /// Number of iterations for ransac.
+    num_iters: usize,
+}
+
+impl Properties for AlmeidaEstimator {
+    fn props_mut(&mut self) -> Vec<(&str, PropertyMut)> {
+        vec![
+            ("Use ransac", PropertyMut::bool(&mut self.use_ransac)),
+            (
+                "Ransac iters",
+                PropertyMut::usize(&mut self.num_iters, 1, 500),
+            ),
+        ]
+    }
 }
 
 impl Estimator for AlmeidaEstimator {
@@ -61,8 +75,8 @@ impl Estimator for AlmeidaEstimator {
         camera: &StandardCamera,
         _move_magnitude: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
-        let model = if let Some(num_iters) = self.ransac_options {
-            solve_ypr_ransac(motion_vectors, camera, num_iters)
+        let model = if self.use_ransac {
+            solve_ypr_ransac(motion_vectors, camera, self.num_iters)
         } else {
             solve_ypr(camera, motion_vectors)
         } * EPS;

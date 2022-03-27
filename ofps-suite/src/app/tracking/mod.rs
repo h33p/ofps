@@ -1,6 +1,7 @@
 use super::utils::{
     camera_controller::CameraController,
     perf_stats::{perf_stats_options, perf_stats_windows, DrawPerfStats},
+    properties::{properties_grid_ui, properties_ui},
     ui_misc::{jlabel, realtime_processing, realtime_processing_fn, transparent_windows},
 };
 use super::widgets::{
@@ -13,6 +14,7 @@ use epi::Frame;
 use nalgebra as na;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -104,6 +106,8 @@ pub struct MotionTrackingConfig {
     camera_fov_y: f32,
     #[serde(default)]
     realtime_processing: bool,
+    #[serde(default)]
+    decoder_properties: BTreeMap<String, Property>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
@@ -363,6 +367,7 @@ impl MotionTrackingApp {
             camera_fov_x,
             camera_fov_y,
             realtime_processing,
+            decoder_properties,
         }: MotionTrackingConfig,
     ) {
         self.draw_grid = draw_grid;
@@ -378,6 +383,7 @@ impl MotionTrackingApp {
         self.app_settings.camera = StandardCamera::new(camera_fov_x, camera_fov_y);
         self.app_settings.settings.clear();
         self.app_settings.realtime_processing = realtime_processing;
+        self.app_settings.decoder_properties = decoder_properties;
 
         self.ground_truth.data = None;
         self.ground_truth.path = ground_truth.0;
@@ -448,12 +454,13 @@ impl MotionTrackingApp {
                 .map(|ui| ui.config.clone())
                 .zip(self.app_settings.settings.iter())
                 .map(|(cfg, (_, loaded, settings))| {
-                    (cfg, loaded.load(Ordering::Relaxed), *settings)
+                    (cfg, loaded.load(Ordering::Relaxed), settings.clone())
                 })
                 .collect(),
             camera_fov_x,
             camera_fov_y,
             realtime_processing: self.app_settings.realtime_processing,
+            decoder_properties: self.app_settings.decoder_properties.clone(),
         }
     }
 }
@@ -526,13 +533,28 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                     ui.separator();
 
-                    if let Some(_) = &mut self.app_state {
-                        Grid::new(format!("decoder_settings")).show(ui, |ui| {
-                            if ui.button("Close decoder").clicked() {
-                                self.app_state = None;
-                            }
-                            realtime_processing(ui, &mut self.app_settings.realtime_processing);
-                        });
+                    if let Some(worker) = &mut self.app_state {
+                        let settings = &mut self.app_settings;
+                        let clicked_close = Grid::new(format!("decoder_settings"))
+                            .show(ui, |ui| {
+                                let clicked_close = ui.button("Close decoder").clicked();
+
+                                realtime_processing(ui, &mut settings.realtime_processing);
+
+                                let state = worker.worker.read().ok();
+
+                                properties_ui(
+                                    ui,
+                                    &mut settings.decoder_properties,
+                                    state.as_ref().map(|s| &s.decoder_properties),
+                                );
+
+                                clicked_close
+                            })
+                            .inner;
+                        if clicked_close {
+                            self.app_state = None;
+                        }
                     } else {
                         match DecoderPlugin::create_plugin_ui(
                             ui,
@@ -547,6 +569,13 @@ impl OfpsCtxApp for MotionTrackingApp {
                             }
                             _ => {}
                         }
+
+                        properties_grid_ui(
+                            ui,
+                            "decoder_settings",
+                            &mut self.app_settings.decoder_properties,
+                            None,
+                        );
                     }
 
                     ui.separator();
@@ -601,6 +630,8 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                     let mut to_remove = None;
 
+                    let app_state_lock = self.app_state.as_ref().and_then(|s| s.worker.read().ok());
+
                     {
                         for (i, (state, (est, exists, settings))) in self
                             .estimator_uis
@@ -643,6 +674,14 @@ impl OfpsCtxApp for MotionTrackingApp {
                                         .step_by(0.01),
                                 );
                                 ui.end_row();
+
+                                let props =
+                                    app_state_lock.as_ref().and_then(|s| s.estimators.get(i));
+
+                                let props =
+                                    props.map(Option::as_ref).flatten().map(|s| &s.properties);
+
+                                properties_ui(ui, &mut settings.properties, props);
 
                                 if is_some {
                                     if ui.button("Stop").clicked() {

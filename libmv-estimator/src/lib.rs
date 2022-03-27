@@ -109,21 +109,37 @@ impl PrevMotion {
 
 /// Libmv based camera estimator.
 pub struct LibmvEstimator {
-    outlier_proba: f64,
-    max_error: f64,
+    outlier_proba: f32,
+    max_error: f32,
     algo_points: usize,
     prev_motion: Option<PrevMotion>,
 }
 
+impl Properties for LibmvEstimator {
+    fn props_mut(&mut self) -> Vec<(&str, PropertyMut)> {
+        vec![
+            (
+                "Outlier prob.",
+                PropertyMut::float(&mut self.outlier_proba, 0.0, 1.0),
+            ),
+            (
+                "Max error",
+                PropertyMut::float(&mut self.max_error, 0.00001, 0.1),
+            ),
+            ("Points", PropertyMut::usize(&mut self.algo_points, 7, 8)),
+        ]
+    }
+}
+
 impl LibmvEstimator {
-    pub fn outlier_proba(self, outlier_proba: f64) -> Self {
+    pub fn outlier_proba(self, outlier_proba: f32) -> Self {
         Self {
             outlier_proba,
             ..self
         }
     }
 
-    pub fn max_error(self, max_error: f64) -> Self {
+    pub fn max_error(self, max_error: f32) -> Self {
         Self { max_error, ..self }
     }
 
@@ -155,8 +171,8 @@ impl Estimator for LibmvEstimator {
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
         let (err, f, inliers) = fundamental(
             motion_vectors.iter().copied(),
-            self.outlier_proba,
-            self.max_error,
+            self.outlier_proba as _,
+            self.max_error as _,
             self.algo_points,
         )
         .ok_or_else(|| anyhow!("failed to compute fundamental matrix"))?;
@@ -217,8 +233,8 @@ impl Estimator for LibmvEstimator {
             } else {
                 let (err, f, inliers) = fundamental(
                     prev_motion.mv_iter(),
-                    self.outlier_proba,
-                    self.max_error,
+                    self.outlier_proba as _,
+                    self.max_error as _,
                     self.algo_points,
                 )
                 .ok_or_else(|| anyhow!("failed to compute secondary fundamental matrix"))?;

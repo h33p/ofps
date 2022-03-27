@@ -32,6 +32,8 @@ struct MvecFile<T> {
     reader: T,
 }
 
+impl<T> Properties for MvecFile<T> {}
+
 impl<T: Read> Decoder for MvecFile<T> {
     /// Process a single frame in the stream.
     ///

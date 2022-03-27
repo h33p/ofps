@@ -17,10 +17,11 @@ goblin = { version = "0.4", optional = true, features = ["pe32", "pe64", "elf32"
 log = "0.4"
 paste = "1"
 dirs = "4"
+serde = { version = "1", features = ["derive"], optional = true }
 
 [build-dependencies]
 rustc_version = "0.4"
 
 [features]
-default = ["plugins"]
+default = ["plugins", "serde"]
 plugins = ["libloading", "cglue", "goblin"]

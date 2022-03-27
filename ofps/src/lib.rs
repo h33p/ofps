@@ -25,14 +25,14 @@ pub mod prelude {
         pub use crate::{
             camera::*,
             decoder::{Decoder, MotionEntry, MotionVectors, RGBA},
-            detection::BlockMotionDetection,
+            detection::Detector,
             estimator::Estimator,
             motion_field::{MotionField, MotionFieldDensifier},
         };
         #[cfg(feature = "plugins")]
         pub use crate::{
             define_descriptor,
-            plugins::{DecoderPlugin, EstimatorPlugin, PluginStore},
+            plugins::{properties::*, DecoderPlugin, DetectorPlugin, EstimatorPlugin, PluginStore},
         };
         pub use anyhow::{anyhow, Error, Result};
         pub use ptrplus;

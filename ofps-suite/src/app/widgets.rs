@@ -386,11 +386,34 @@ impl CreatePluginUi for DecoderPlugin {
     }
 }
 
+impl CreatePluginUi for DetectorPlugin {
+    type Extra = ();
+
+    fn available_plugins(ctx: &OfpsAppContext) -> Vec<String> {
+        ctx.plugin_store.available_detectors()
+    }
+
+    fn create_plugin(ctx: &OfpsAppContext, plugin: &str, arg: String) -> Result<Self> {
+        ctx.plugin_store.create_detector(plugin, arg)
+    }
+
+    fn arg_ui(ui: &mut Ui, ctx: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
+        ui.label("Arguments:");
+
+        ui.add(TextEdit::singleline(&mut state.config.arg));
+
+        ui.end_row();
+    }
+}
+
 pub type CreateDecoderUiConfig = CreatePluginConfig<<DecoderPlugin as CreatePluginUi>::Extra>;
 pub type CreateDecoderUiState = CreatePluginState<<DecoderPlugin as CreatePluginUi>::Extra>;
 
 pub type CreateEstimatorUiConfig = CreatePluginConfig<<EstimatorPlugin as CreatePluginUi>::Extra>;
 pub type CreateEstimatorUiState = CreatePluginState<<EstimatorPlugin as CreatePluginUi>::Extra>;
+
+pub type CreateDetectorUiConfig = CreatePluginConfig<<DetectorPlugin as CreatePluginUi>::Extra>;
+pub type CreateDetectorUiState = CreatePluginState<<DetectorPlugin as CreatePluginUi>::Extra>;
 
 pub trait CreatePluginUi: Sized {
     type Extra;

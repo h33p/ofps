@@ -1,10 +1,12 @@
 use super::super::utils::{
+    properties::transfer_props,
     timer::Timer,
     worker::{AppWorker, Workable},
 };
 use nalgebra as na;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::{
     atomic::AtomicBool,
     mpsc::{self, Receiver, Sender},
@@ -13,7 +15,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 use wimrend::material::Material;
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EstimatorSettings {
     pub scale_factor: f32,
     pub camera_offset: f32,
@@ -22,6 +24,8 @@ pub struct EstimatorSettings {
     pub keep_frames: usize,
     #[serde(skip)]
     pub clear_count: usize,
+    #[serde(default)]
+    pub properties: BTreeMap<String, Property>,
 }
 
 impl Default for EstimatorSettings {
@@ -33,6 +37,7 @@ impl Default for EstimatorSettings {
             layer_angle_delta: 0.5,
             keep_frames: 100,
             clear_count: 0,
+            properties: Default::default(),
         }
     }
 }
@@ -49,6 +54,7 @@ pub struct EstimatorState {
     pub times: Vec<Duration>,
     pub layered_frames: Vec<(usize, Arc<Mutex<FrameState>>)>,
     pub clear_count: usize,
+    pub properties: BTreeMap<String, Property>,
 }
 
 impl EstimatorState {
@@ -241,6 +247,12 @@ impl TrackingState {
             _ => {}
         }
 
+        transfer_props(
+            self.decoder.props_mut(),
+            &settings.decoder_properties,
+            &mut out.decoder_properties,
+        );
+
         self.decoder_times.push(timer.elapsed());
         self.frames += 1;
 
@@ -254,6 +266,12 @@ impl TrackingState {
             .filter_map(|(s, settings)| s.as_mut().zip(Some(settings)))
         {
             if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
+                transfer_props(
+                    estimator.props_mut(),
+                    &est_settings.properties,
+                    &mut estimator_state.properties,
+                );
+
                 let timer = Instant::now();
                 if let Ok((frot, tr)) =
                     estimator.estimate(&self.motion_vectors, &settings.camera, None)
@@ -311,6 +329,7 @@ impl Workable for TrackingState {
 pub struct TrackingOutput {
     pub estimators: Vec<Option<EstimatorState>>,
     pub decoder_times: Vec<Duration>,
+    pub decoder_properties: BTreeMap<String, Property>,
 }
 
 #[derive(Clone)]
@@ -322,6 +341,7 @@ pub struct TrackingSettings {
     )>,
     pub camera: StandardCamera,
     pub realtime_processing: bool,
+    pub decoder_properties: BTreeMap<String, Property>,
 }
 
 impl Default for TrackingSettings {
@@ -330,6 +350,7 @@ impl Default for TrackingSettings {
             settings: vec![],
             camera: StandardCamera::new(39.6, 39.6 * 9.0 / 16.0),
             realtime_processing: false,
+            decoder_properties: Default::default(),
         }
     }
 }

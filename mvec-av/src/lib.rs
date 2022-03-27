@@ -161,6 +161,8 @@ pub struct AvDecoder<T: ?Sized> {
     sws_ctx: Option<&'static mut SwsContext>,
 }
 
+impl<T: ?Sized> Properties for AvDecoder<T> {}
+
 unsafe impl<T: Send + ?Sized> Send for AvDecoder<T> {}
 unsafe impl<T: Sync + ?Sized> Sync for AvDecoder<T> {}
 

@@ -1,15 +1,20 @@
 use super::utils::{
     perf_stats::*,
+    properties::*,
     timer::Timer,
     ui_misc::{realtime_processing_fn, transparent_windows},
     worker::{AppWorker, Workable},
 };
-use super::widgets::{CreateDecoderUiConfig, CreateDecoderUiState, CreatePluginUi, FilePicker};
+use super::widgets::{
+    CreateDecoderUiConfig, CreateDecoderUiState, CreateDetectorUiConfig, CreateDetectorUiState,
+    CreatePluginUi, FilePicker,
+};
 use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
 use epi::Frame;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
@@ -18,6 +23,7 @@ use wimrend::Renderer;
 #[derive(Serialize, Deserialize)]
 pub struct MotionDetectionConfig {
     decoder: (CreateDecoderUiConfig, bool),
+    detector: (CreateDetectorUiConfig, bool),
     settings: MotionDetectionSettings,
     overlay_mf: bool,
     #[serde(default)]
@@ -26,7 +32,7 @@ pub struct MotionDetectionConfig {
 
 struct MotionDetectionState {
     decoder: DecoderPlugin,
-    detector: BlockMotionDetection,
+    detector: DetectorPlugin,
     frames: usize,
     motion_ranges: Vec<(usize, usize)>,
     detector_times: Vec<Duration>,
@@ -40,10 +46,10 @@ impl Workable for MotionDetectionState {
 }
 
 impl MotionDetectionState {
-    fn new(decoder: DecoderPlugin) -> Self {
+    fn new(decoder: DecoderPlugin, detector: DetectorPlugin) -> Self {
         Self {
             decoder,
-            detector: Default::default(),
+            detector,
             frames: 0,
             motion_ranges: vec![],
             decoder_times: vec![],
@@ -52,14 +58,22 @@ impl MotionDetectionState {
         }
     }
 
-    pub fn worker(decoder: DecoderPlugin, settings: MotionDetectionSettings) -> AppWorker<Self> {
-        AppWorker::new(Self::new(decoder), settings, MotionDetectionState::update)
+    pub fn worker(
+        decoder: DecoderPlugin,
+        detector: DetectorPlugin,
+        settings: MotionDetectionSettings,
+    ) -> AppWorker<Self> {
+        AppWorker::new(
+            Self::new(decoder, detector),
+            settings,
+            MotionDetectionState::update,
+        )
     }
 
     fn update(
         &mut self,
         out: &mut MotionDetectionOutput,
-        settings: MotionDetectionSettings,
+        mut settings: MotionDetectionSettings,
     ) -> bool {
         out.motion_vectors.clear();
         out.frame.clear();
@@ -92,14 +106,20 @@ impl MotionDetectionState {
         self.decoder_times.push(timer.elapsed());
         out.frames = self.frames;
 
-        self.detector.min_size = settings.min_size;
-        self.detector.subdivide = settings.subdivide;
-        self.detector.target_motion = settings.target_motion;
+        transfer_props(
+            self.detector.props_mut(),
+            &settings.detector_properties,
+            &mut out.detector_properties,
+        );
+
+        transfer_props(
+            self.decoder.props_mut(),
+            &settings.decoder_properties,
+            &mut out.decoder_properties,
+        );
 
         let timer = Instant::now();
-        out.motion = self
-            .detector
-            .detect_motion(out.motion_vectors.iter().copied());
+        out.motion = self.detector.detect_motion(&out.motion_vectors);
         self.detector_times.push(timer.elapsed());
 
         if out.motion.is_some() {
@@ -123,24 +143,14 @@ impl MotionDetectionState {
     }
 }
 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct MotionDetectionSettings {
-    min_size: f32,
-    subdivide: usize,
-    target_motion: f32,
+    #[serde(default)]
+    decoder_properties: BTreeMap<String, Property>,
+    #[serde(default)]
+    detector_properties: BTreeMap<String, Property>,
     #[serde(default)]
     realtime_processing: bool,
-}
-
-impl Default for MotionDetectionSettings {
-    fn default() -> Self {
-        Self {
-            min_size: 0.05,
-            subdivide: 3,
-            target_motion: 0.003,
-            realtime_processing: false,
-        }
-    }
 }
 
 #[derive(Default)]
@@ -153,12 +163,17 @@ struct MotionDetectionOutput {
     motion_ranges: Vec<(usize, usize)>,
     detector_times: Vec<Duration>,
     decoder_times: Vec<Duration>,
+    decoder_properties: BTreeMap<String, Property>,
+    detector_properties: BTreeMap<String, Property>,
 }
 
 #[derive(Default)]
 pub struct MotionDetectionApp {
     create_decoder_state: CreateDecoderUiState,
+    create_detector_state: CreateDetectorUiState,
     app_state: Option<AppWorker<MotionDetectionState>>,
+    pending_decoder: Option<DecoderPlugin>,
+    pending_detector: Option<DetectorPlugin>,
     tex_handle: Option<TextureHandle>,
     overlay_mf: bool,
     settings: MotionDetectionSettings,
@@ -172,6 +187,7 @@ impl MotionDetectionApp {
         ofps_ctx: &OfpsAppContext,
         MotionDetectionConfig {
             decoder,
+            detector,
             settings,
             overlay_mf,
             draw_perf_stats,
@@ -185,12 +201,13 @@ impl MotionDetectionApp {
         self.app_state = None;
 
         if decoder.1 {
-            match DecoderPlugin::do_create(ofps_ctx, &mut self.create_decoder_state) {
-                Ok(decoder) => {
-                    self.app_state = Some(MotionDetectionState::worker(decoder, self.settings))
-                }
-                _ => {}
-            }
+            self.pending_decoder =
+                DecoderPlugin::do_create(ofps_ctx, &mut self.create_decoder_state).ok();
+        }
+
+        if detector.1 {
+            self.pending_detector =
+                DetectorPlugin::do_create(ofps_ctx, &mut self.create_detector_state).ok();
         }
     }
 
@@ -198,9 +215,13 @@ impl MotionDetectionApp {
         MotionDetectionConfig {
             decoder: (
                 self.create_decoder_state.config.clone(),
-                self.app_state.is_some(),
+                self.app_state.is_some() || self.pending_decoder.is_some(),
             ),
-            settings: self.settings,
+            detector: (
+                self.create_detector_state.config.clone(),
+                self.app_state.is_some() || self.pending_detector.is_some(),
+            ),
+            settings: self.settings.clone(),
             overlay_mf: self.overlay_mf,
             draw_perf_stats: self.draw_perf_stats,
         }
@@ -238,40 +259,141 @@ impl OfpsCtxApp for MotionDetectionApp {
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    Grid::new("motion_settings").show(ui, |ui| {
-                        ui.label("Min size:");
-
-                        ui.add(Slider::new(&mut self.settings.min_size, 0.01..=1.0));
-
-                        ui.end_row();
-
-                        ui.label("Subdivisions:");
-
-                        ui.add(Slider::new(&mut self.settings.subdivide, 1..=16));
-
-                        ui.end_row();
-
-                        ui.label("Min magnitude:");
-
-                        ui.add(Slider::new(&mut self.settings.target_motion, 0.0001..=0.01));
-
-                        ui.end_row();
-
-                        ui.checkbox(&mut self.overlay_mf, "Overlay Motion");
-                    });
-
-                    ui.separator();
-
                     ui.heading("Decoder:");
 
                     ui.separator();
 
                     if let Some(app_state) = &self.app_state {
-                        let _ = app_state.settings().map(|mut s| *s = self.settings);
+                        let _ = app_state.settings().map(|mut s| *s = self.settings.clone());
 
                         let mut app_state_lock = app_state.read();
 
                         if let Ok(state) = &mut app_state_lock {
+                            let realtime_processing =
+                                realtime_processing_fn(&mut self.settings.realtime_processing);
+
+                            let clicked_close = Grid::new("detector_options")
+                                .show(ui, |ui| {
+                                    let clicked_close = ui.button("Close").clicked();
+
+                                    realtime_processing(ui);
+
+                                    ui.end_row();
+
+                                    clicked_close
+                                })
+                                .inner;
+
+                            properties_grid_ui(
+                                ui,
+                                "decoder_properties",
+                                &mut self.settings.decoder_properties,
+                                Some(&state.decoder_properties),
+                            );
+
+                            std::mem::drop(app_state_lock);
+
+                            if clicked_close {
+                                self.app_state = None;
+                            }
+                        } else {
+                            std::mem::drop(app_state_lock);
+                            self.app_state = None;
+                        }
+                    } else {
+                        if let Some(decoder) = self.pending_decoder.as_mut() {
+                            ui.label("Waiting for detector");
+                            let clicked_close = ui.button("Close").clicked();
+
+                            let props = decoder
+                                .props()
+                                .into_iter()
+                                .map(|(n, p)| (n.to_string(), p))
+                                .collect();
+
+                            properties_grid_ui(
+                                ui,
+                                "decoder_properties",
+                                &mut self.settings.decoder_properties,
+                                Some(&props),
+                            );
+
+                            if clicked_close {
+                                self.pending_decoder = None;
+                            }
+                        } else {
+                            ui.label("Open motion vectors");
+
+                            match DecoderPlugin::create_plugin_ui(
+                                ui,
+                                ofps_ctx,
+                                &mut self.create_decoder_state,
+                                0,
+                                realtime_processing_fn(&mut self.settings.realtime_processing),
+                            ) {
+                                Some(Ok(decoder)) => {
+                                    self.pending_decoder = Some(decoder);
+                                }
+                                _ => {}
+                            }
+
+                            properties_grid_ui(
+                                ui,
+                                "decoder_properties",
+                                &mut self.settings.decoder_properties,
+                                None,
+                            );
+                        }
+                    }
+
+                    ui.separator();
+
+                    perf_stats_options(ui, &mut self.draw_perf_stats);
+
+                    let detector_props_ui =
+                        |ui: &mut Ui,
+                         settings: &mut MotionDetectionSettings,
+                         detector_properties,
+                         overlay_mf| {
+                            properties_grid_ui(
+                                ui,
+                                "detector_properties",
+                                &mut settings.detector_properties,
+                                detector_properties,
+                            );
+                            ui.checkbox(overlay_mf, "Overlay Motion");
+                        };
+
+                    ui.heading("Detector:");
+
+                    ui.separator();
+
+                    if let Some(detector) = self.pending_detector.as_mut() {
+                        ui.label("Waiting for decoder");
+
+                        let clicked_close = ui.button("Close").clicked();
+
+                        let props = detector
+                            .props()
+                            .into_iter()
+                            .map(|(n, p)| (n.to_string(), p))
+                            .collect();
+
+                        detector_props_ui(
+                            ui,
+                            &mut self.settings,
+                            Some(&props),
+                            &mut self.overlay_mf,
+                        );
+
+                        if clicked_close {
+                            self.pending_detector = None;
+                        }
+                    } else {
+                        let app_state = self.app_state.as_ref();
+                        let output = app_state.and_then(|a| a.read().ok());
+
+                        let clicked_close = if let Some(state) = &output {
                             if !state.frame.is_empty() {
                                 let image = ColorImage::from_rgba_unmultiplied(
                                     [state.frame.len() / state.frame_height, state.frame_height],
@@ -286,14 +408,9 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 }
                             }
 
-                            let realtime_processing =
-                                realtime_processing_fn(&mut self.settings.realtime_processing);
-
                             let clicked_close = Grid::new("motion_info")
                                 .show(ui, |ui| {
                                     let clicked_close = ui.button("Close").clicked();
-
-                                    realtime_processing(ui);
 
                                     ui.end_row();
 
@@ -308,6 +425,13 @@ impl OfpsCtxApp for MotionDetectionApp {
                                     clicked_close
                                 })
                                 .inner;
+
+                            detector_props_ui(
+                                ui,
+                                &mut self.settings,
+                                output.as_ref().map(|a| &a.detector_properties),
+                                &mut self.overlay_mf,
+                            );
 
                             ui.label("Dominant motion:");
 
@@ -340,38 +464,53 @@ impl OfpsCtxApp for MotionDetectionApp {
                                     }
                                 });
 
-                            std::mem::drop(app_state_lock);
-
-                            if clicked_close {
-                                self.app_state = None;
-                            }
+                            clicked_close
                         } else {
-                            std::mem::drop(app_state_lock);
+                            ui.label("Open motion detector");
+
+                            match DetectorPlugin::create_plugin_ui(
+                                ui,
+                                ofps_ctx,
+                                &mut self.create_detector_state,
+                                1,
+                                |_| {},
+                            ) {
+                                Some(Ok(detector)) => {
+                                    self.pending_detector = Some(detector);
+                                }
+                                _ => {}
+                            }
+
+                            detector_props_ui(
+                                ui,
+                                &mut self.settings,
+                                output.as_ref().map(|a| &a.detector_properties),
+                                &mut self.overlay_mf,
+                            );
+
+                            false
+                        };
+
+                        std::mem::drop(output);
+                        std::mem::drop(app_state);
+
+                        if clicked_close {
                             self.app_state = None;
                         }
-                    } else {
-                        ui.label("Open motion vectors");
-
-                        match DecoderPlugin::create_plugin_ui(
-                            ui,
-                            ofps_ctx,
-                            &mut self.create_decoder_state,
-                            0,
-                            realtime_processing_fn(&mut self.settings.realtime_processing),
-                        ) {
-                            Some(Ok(decoder)) => {
-                                self.app_state =
-                                    Some(MotionDetectionState::worker(decoder, Default::default()))
-                            }
-                            _ => {}
-                        }
                     }
-
-                    ui.separator();
-
-                    perf_stats_options(ui, &mut self.draw_perf_stats);
                 });
         });
+
+        if self.pending_decoder.is_some() && self.pending_detector.is_some() {
+            let decoder = self.pending_decoder.take().unwrap();
+            let detector = self.pending_detector.take().unwrap();
+
+            self.app_state = Some(MotionDetectionState::worker(
+                decoder,
+                detector,
+                self.settings.clone(),
+            ));
+        }
 
         let mut app_state_lock = self.app_state.as_ref().map(|s| s.read());
 

@@ -19,6 +19,7 @@ members = [
 	"almeida-estimator",
 	"libmv-estimator",
 	"multiview-estimator",
+	"block-motion-detector",
 	"wimrend",
 ]
 
@@ -35,6 +36,7 @@ default-members = [
 	"almeida-estimator",
 	"libmv-estimator",
 	"multiview-estimator",
+	"block-motion-detector",
 	"wimrend",
 ]
 

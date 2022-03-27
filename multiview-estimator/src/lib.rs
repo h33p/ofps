@@ -80,22 +80,39 @@ impl PrevMotion {
 
 /// Libmv based camera estimator.
 pub struct MultiviewEstimator {
-    desired_confidence: f64,
-    max_error: f64,
+    desired_confidence: f32,
+    max_error: f32,
     max_iters: usize,
     use_ransac: bool,
     prev_motion: Option<PrevMotion>,
 }
 
+impl Properties for MultiviewEstimator {
+    fn props_mut(&mut self) -> Vec<(&str, PropertyMut)> {
+        vec![
+            (
+                "Desired confidence",
+                PropertyMut::float(&mut self.desired_confidence, 0.0, 1.0),
+            ),
+            (
+                "Max error",
+                PropertyMut::float(&mut self.max_error, 0.00001, 0.1),
+            ),
+            ("Max iters", PropertyMut::usize(&mut self.max_iters, 1, 500)),
+            ("Use ransac", PropertyMut::Bool(&mut self.use_ransac)),
+        ]
+    }
+}
+
 impl MultiviewEstimator {
-    pub fn desired_confidence(self, desired_confidence: f64) -> Self {
+    pub fn desired_confidence(self, desired_confidence: f32) -> Self {
         Self {
             desired_confidence,
             ..self
         }
     }
 
-    pub fn max_error(self, max_error: f64) -> Self {
+    pub fn max_error(self, max_error: f32) -> Self {
         Self { max_error, ..self }
     }
 
@@ -160,8 +177,8 @@ impl MultiviewEstimator {
             &p2,
             &cam_matrix,
             method,
-            self.desired_confidence,
-            self.max_error,
+            self.desired_confidence as _,
+            self.max_error as _,
             self.max_iters as _,
             &mut inliers,
         )?;

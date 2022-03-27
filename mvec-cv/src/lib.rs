@@ -34,6 +34,21 @@ pub struct CvDecoder {
     max_mfield_size: (usize, usize),
 }
 
+impl Properties for CvDecoder {
+    fn props_mut(&mut self) -> Vec<(&str, PropertyMut)> {
+        vec![
+            (
+                "Width",
+                PropertyMut::usize(&mut self.max_mfield_size.0, 1, 200),
+            ),
+            (
+                "Height",
+                PropertyMut::usize(&mut self.max_mfield_size.1, 1, 200),
+            ),
+        ]
+    }
+}
+
 impl CvDecoder {
     pub fn try_new(
         stream: &str,
