@@ -5,6 +5,8 @@ use super::super::utils::{
 };
 use nalgebra as na;
 use ofps::prelude::v1::*;
+use once_cell::sync::OnceCell;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::{
@@ -336,59 +338,68 @@ impl TrackingState {
         self.decoder_times.push(time);
         self.frames += 1;
 
-        let mut mat = None;
+        let mut mat = OnceCell::new();
+        let camera = &settings.camera;
 
         // Go through each estimator and execute it.
-        for (estimator_state, (estimator, _, est_settings)) in self
-            .estimator_states
+        self.estimator_states
             .iter_mut()
             .zip(settings.settings.iter())
             .filter_map(|(s, settings)| s.as_mut().zip(Some(settings)))
-        {
-            if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
-                transfer_props(
-                    estimator.props_mut(),
-                    &est_settings.properties,
-                    &mut estimator_state.properties,
-                );
+            .par_bridge()
+            .for_each(|(estimator_state, (estimator, _, est_settings))| {
+                if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
+                    transfer_props(
+                        estimator.props_mut(),
+                        &est_settings.properties,
+                        &mut estimator_state.properties,
+                    );
 
-                let timer = Instant::now();
-                if let Ok((frot, tr)) = estimator.estimate(&motion_vectors, &settings.camera, None)
-                {
-                    if estimator_state.clear_count != est_settings.clear_count {
-                        estimator_state.layered_frames.clear();
-                        estimator_state.clear_count = est_settings.clear_count;
-                    }
-
-                    let (pos, rot) = estimator_state.apply_pose(tr, frot);
-                    let mat = if estimator_state.layer_frame(pos, rot, est_settings) {
-                        if mat.is_none() && frame_height > 0 {
-                            mat = Some(Arc::new(Mutex::new(FrameState::Pending(
-                                frame.clone(),
-                                frame_height,
-                            ))));
+                    let timer = Instant::now();
+                    if let Ok((frot, tr)) = estimator.estimate(&motion_vectors, camera, None) {
+                        if estimator_state.clear_count != est_settings.clear_count {
+                            estimator_state.layered_frames.clear();
+                            estimator_state.clear_count = est_settings.clear_count;
                         }
 
-                        mat.as_ref()
-                    } else {
-                        None
-                    };
+                        let (pos, rot) = estimator_state.apply_pose(tr, frot);
+                        let mat = if estimator_state.layer_frame(pos, rot, est_settings) {
+                            if frame_height > 0 {
+                                mat.get_or_init(|| {
+                                    Arc::new(Mutex::new(FrameState::Pending(
+                                        frame.clone(),
+                                        frame_height,
+                                    )))
+                                });
+                            }
 
-                    let mut cnt = 0;
-                    while estimator_state.layered_frames.len() > est_settings.keep_frames
-                        && cnt < 20
-                    {
-                        estimator_state.remove_least_significant_frame();
-                        cnt += 1;
+                            mat.get()
+                        } else {
+                            None
+                        };
+
+                        let mut cnt = 0;
+                        while estimator_state.layered_frames.len() > est_settings.keep_frames
+                            && cnt < 20
+                        {
+                            estimator_state.remove_least_significant_frame();
+                            cnt += 1;
+                        }
+
+                        estimator_state.push_pose(
+                            pos,
+                            rot,
+                            tr,
+                            frot,
+                            mat.cloned(),
+                            timer.elapsed(),
+                        );
                     }
-
-                    estimator_state.push_pose(pos, rot, tr, frot, mat.cloned(), timer.elapsed());
                 }
-            }
-        }
+            });
 
         // Send a frame for UI to load as a texture.
-        if let Some(mat) = mat {
+        if let Some(mat) = mat.take() {
             self.frames_to_load.send(mat).unwrap();
         }
 
