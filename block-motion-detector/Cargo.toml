@@ -1,0 +1,12 @@
+[package]
+name = "block-motion-detector"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+ofps = { version = "0.1", path = "../ofps" }
+nalgebra = "0.30"
+rand = "0.8"

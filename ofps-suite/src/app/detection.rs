@@ -217,6 +217,7 @@ pub struct MotionDetectionApp {
     tex_handle: Option<TextureHandle>,
     settings: MotionDetectionAppSettings,
     config_state: FilePicker,
+    export_state: FilePicker,
 }
 
 impl MotionDetectionApp {
@@ -451,9 +452,49 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 }
                             }
 
+                            let export_state = &mut self.export_state;
+                            let settings = &self.settings;
+
                             let clicked_close = Grid::new("motion_info")
                                 .show(ui, |ui| {
                                     let clicked_close = ui.button("Close").clicked();
+
+                                    if let Err(e) = export_state.show_custom(
+                                        ui,
+                                        (),
+                                        |_, _, path| {
+                                            let ranges = state
+                                                .filtered_motion_ranges(
+                                                    settings.max_frame_gap,
+                                                    settings.min_frames,
+                                                )
+                                                .collect::<Vec<_>>();
+
+                                            let file = std::fs::File::create(path)?;
+                                            let mut writer = csv::Writer::from_writer(file);
+                                            for range in ranges {
+                                                writer.serialize(range)?;
+                                            }
+                                            Ok(())
+                                        },
+                                        |_, ui, is_waiting| {
+                                            if is_waiting {
+                                                ui.label("Waiting");
+                                                None
+                                            } else if ui.button("Export").clicked() {
+                                                Some(true)
+                                            } else {
+                                                None
+                                            }
+                                        },
+                                        || {
+                                            rfd::AsyncFileDialog::new()
+                                                .add_filter("CSV Files", &["csv"])
+                                        },
+                                        |path| path.with_extension("csv"),
+                                    ) {
+                                        log::error!("{e}");
+                                    }
 
                                     ui.end_row();
 
