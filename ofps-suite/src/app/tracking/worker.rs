@@ -181,8 +181,6 @@ fn decoder_job(
     let mut decoder_timer = None;
 
     while flag.load(Ordering::Relaxed) {
-        let timer = Instant::now();
-
         let mut props = Default::default();
 
         if let Ok(settings) = settings.lock() {
@@ -203,6 +201,8 @@ fn decoder_job(
 
         frame_2.clear();
         frame_height_2 = 0;
+
+        let timer = Instant::now();
 
         let frame = match decoder.process_frame(
             &mut motion_vectors_2,
@@ -232,13 +232,15 @@ fn decoder_job(
 struct DecoderJob {
     flag: Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
-    results: Receiver<DecoderResult>,
+    results: Option<Receiver<DecoderResult>>,
     settings: Arc<Mutex<DecoderSettings>>,
 }
 
 impl Drop for DecoderJob {
     fn drop(&mut self) {
         self.flag.store(false, Ordering::Relaxed);
+
+        self.results.take();
 
         if let Some(handle) = self.handle.take() {
             handle.join().unwrap();
@@ -252,6 +254,8 @@ impl From<DecoderPlugin> for DecoderJob {
 
         let (sender, results) = mpsc::sync_channel(0);
         let settings = Arc::new(Mutex::new(Default::default()));
+
+        let results = Some(results);
 
         let handle = Some({
             let flag = flag.clone();
@@ -324,16 +328,18 @@ impl TrackingState {
             dec_settings.realtime_processing = settings.realtime_processing;
         }
 
-        let (motion_vectors, frame, frame_height, time) = match self.decoder.results.recv() {
-            Ok(DecoderResult { frame, time, props }) => {
-                out.decoder_properties = props;
-                match frame {
-                    Ok((mv, f, fh)) => (mv, f, fh, time),
-                    Err(_) => return false,
+        // `results` only becomes `None` when it is being dropped.
+        let (motion_vectors, frame, frame_height, time) =
+            match self.decoder.results.as_mut().unwrap().recv() {
+                Ok(DecoderResult { frame, time, props }) => {
+                    out.decoder_properties = props;
+                    match frame {
+                        Ok((mv, f, fh)) => (mv, f, fh, time),
+                        Err(_) => return false,
+                    }
                 }
-            }
-            Err(_) => return false,
-        };
+                Err(_) => return false,
+            };
 
         self.decoder_times.push(time);
         self.frames += 1;
