@@ -51,7 +51,7 @@ impl<T: for<'a> Deserialize<'a>> FileLoader<T> {
         ui: &mut Ui,
         id: &str,
         deserialise: impl FnOnce(File) -> std::result::Result<T, E>,
-        dialog_builder: impl FnOnce() -> rfd::AsyncFileDialog,
+        dialog_builder: impl FnOnce() -> rfd::FileDialog,
     ) -> Result<()>
     where
         anyhow::Error: From<E>,
@@ -192,7 +192,7 @@ impl FilePicker {
                 .inner
                 .flatten()
             },
-            || rfd::AsyncFileDialog::new().add_filter("JSON Files", &["json"]),
+            || rfd::FileDialog::new().add_filter("JSON Files", &["json"]),
             |path| path.with_extension("json"),
         )
     }
@@ -216,7 +216,7 @@ impl FilePicker {
         mut state: S,
         on_file: impl FnOnce(&mut S, bool, String) -> Result<()>,
         ui_fn: impl FnOnce(&mut S, &mut Ui, bool) -> Option<bool>,
-        build_dialog: impl FnOnce() -> rfd::AsyncFileDialog,
+        build_dialog: impl FnOnce() -> rfd::FileDialog,
         path_map: impl FnOnce(&Path) -> PathBuf + Send + 'static,
     ) -> Result<()> {
         if let Some((save, rx, h)) = self.thread.take() {
@@ -236,40 +236,33 @@ impl FilePicker {
             let task = build_dialog();
 
             let h = spawn(move || {
-                pollster::block_on(async move {
-                    let file = if save {
-                        task.save_file().await
-                    } else {
-                        task.pick_file().await
-                    };
+                let file = if save {
+                    task.save_file()
+                } else {
+                    task.pick_file()
+                };
 
-                    // rfd, or rather its GDK impl is buggy, and requires a sleep.
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-
-                    tx.send(
-                        file.as_ref()
-                            .map(rfd::FileHandle::path)
-                            .map(|path| {
-                                // Convert to relative path if it starts with cwd
-                                if let Ok(curdir) = std::env::current_dir() {
-                                    if path.starts_with(&curdir) {
-                                        if let Some((curdir, path)) =
-                                            curdir.to_str().zip(path.to_str())
-                                        {
-                                            let p = &path[curdir.len()..];
-                                            return Path::new(p.trim_start_matches('/'));
-                                        }
+                tx.send(
+                    file.as_ref()
+                        .map(|path| {
+                            // Convert to relative path if it starts with cwd
+                            if let Ok(curdir) = std::env::current_dir() {
+                                if path.starts_with(&curdir) {
+                                    if let Some((curdir, path)) = curdir.to_str().zip(path.to_str())
+                                    {
+                                        let p = &path[curdir.len()..];
+                                        return Path::new(p.trim_start_matches('/'));
                                     }
                                 }
-                                path
-                            })
-                            .map(|path| path_map(path))
-                            .as_ref()
-                            .and_then(|f| f.to_str())
-                            .map(<_>::into),
-                    )
-                    .expect("Failed to send");
-                })
+                            }
+                            path
+                        })
+                        .map(|path| path_map(path))
+                        .as_ref()
+                        .and_then(|f| f.to_str())
+                        .map(<_>::into),
+                )
+                .expect("Failed to send");
             });
             self.thread = Some((save, rx, h));
         }
@@ -370,7 +363,7 @@ impl CreatePluginUi for DecoderPlugin {
                     }
                 },
                 || {
-                    rfd::AsyncFileDialog::new()
+                    rfd::FileDialog::new()
                         .add_filter(
                             "Video",
                             &["mp4", "mov", "mkv", "h264", "MP4", "MOV", "MKV", "H264"],

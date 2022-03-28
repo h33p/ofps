@@ -103,12 +103,6 @@ impl Decoder for CvDecoder {
                     }
                 };
 
-                let (dx, dy) = if dx * 4 < self.gray_tmp.cols() as usize {
-                    (dx * 4, dy * 4)
-                } else {
-                    (dx, dy)
-                };
-
                 imgproc::resize(
                     &self.gray_tmp,
                     &mut self.gray,

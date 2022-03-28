@@ -100,12 +100,9 @@ pub fn perf_stats_windows<
                             let dec_name = dec_name.to_string();
 
                             std::thread::spawn(move || {
-                                if let Err(e) = pollster::block_on(async move {
-                                    if let Some(dir) =
-                                        rfd::AsyncFileDialog::new().pick_folder().await
-                                    {
-                                        let dir = dir.path();
-                                        std::fs::create_dir_all(dir)?;
+                                if let Err(e) = (move || {
+                                    if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                        std::fs::create_dir_all(&dir)?;
                                         for (name, stats) in all_stats {
                                             let mut path = dir.to_path_buf();
                                             path.push(format!("perf_{name}_{dec_name}.csv"));
@@ -117,7 +114,7 @@ pub fn perf_stats_windows<
                                         }
                                     }
                                     std::io::Result::Ok(())
-                                }) {
+                                })() {
                                     log::error!("Error while exporting stats: {}", e);
                                 }
                             });

@@ -609,7 +609,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                     let _ =
                         self.ground_truth
                             .show(ui, "ground_truth", GroundTruth::from_csv, || {
-                                rfd::AsyncFileDialog::new().add_filter("CSV Files", &["csv"])
+                                rfd::FileDialog::new().add_filter("CSV Files", &["csv"])
                             });
 
                     Grid::new("draw_ground_truth").show(ui, |ui| {
@@ -849,12 +849,9 @@ impl OfpsCtxApp for MotionTrackingApp {
                                     .collect::<Vec<_>>();
 
                                 std::thread::spawn(move || {
-                                    if let Err(e) = pollster::block_on(async move {
-                                        if let Some(dir) =
-                                            rfd::AsyncFileDialog::new().pick_folder().await
-                                        {
-                                            let dir = dir.path();
-                                            std::fs::create_dir_all(dir)?;
+                                    if let Err(e) = (move || {
+                                        if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+                                            std::fs::create_dir_all(&dir)?;
                                             for (name, stats) in all_stats {
                                                 let mut path = dir.to_path_buf();
                                                 path.push(format!("{name}.csv"));
@@ -866,7 +863,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                                             }
                                         }
                                         std::io::Result::Ok(())
-                                    }) {
+                                    })() {
                                         log::error!("Error while exporting stats: {}", e);
                                     }
                                 });

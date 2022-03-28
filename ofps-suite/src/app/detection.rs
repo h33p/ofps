@@ -487,10 +487,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                                                 None
                                             }
                                         },
-                                        || {
-                                            rfd::AsyncFileDialog::new()
-                                                .add_filter("CSV Files", &["csv"])
-                                        },
+                                        || rfd::FileDialog::new().add_filter("CSV Files", &["csv"]),
                                         |path| path.with_extension("csv"),
                                     ) {
                                         log::error!("{e}");
