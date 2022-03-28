@@ -541,6 +541,8 @@ impl OfpsCtxApp for MotionTrackingApp {
 
                                 realtime_processing(ui, &mut settings.realtime_processing);
 
+                                ui.end_row();
+
                                 let state = worker.worker.read().ok();
 
                                 properties_ui(
@@ -782,7 +784,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                             .auto_shrink([true, true])
                             .show(ui, |ui| {
                                 Grid::new(format!("tracking_ui"))
-                                    .min_col_width(ui.spacing().interact_size.x + 20.0)
+                                    .min_col_width(ui.spacing().interact_size.x + 30.0)
                                     .show(ui, |ui| {
                                         jlabel(ui, "Estimator");
                                         jlabel(ui, "Combo");
