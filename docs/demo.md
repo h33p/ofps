@@ -71,27 +71,6 @@ By Aurimas Blažulionis
 
 ---
 
-# I-Frames
-
-* Essentially JPEG.
-
----
-
-# P-Frames
-
-* Predicted frame.
-* Changes since previous frame.
-* **Motion.**
-
----
-
-# B-Frames
-
-* Bi-directional predicted frame.
-* Not useful for realtime operation.
-
----
-
 # Extracting the motion
 
 * FFMPEG/LibAV.
@@ -106,6 +85,14 @@ By Aurimas Blažulionis
 * OpenCV: 45.679ms
 * LibAV: 13.36ms
 * (160x faster than MaskFlowNet)
+
+---
+
+# MPEG vs. MaskFlowNet quality
+
+---
+
+![bg contain](resources/video/maskflownet_compare.webp)
 
 ---
 
@@ -166,14 +153,6 @@ By Aurimas Blažulionis
 # Predicting with VOLDOR
 
 * Does not work.
-
----
-
-# MPEG vs. MaskFlowNet
-
----
-
-![bg contain](resources/video/maskflownet_compare.webp)
 
 ---
 
