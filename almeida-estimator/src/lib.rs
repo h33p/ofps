@@ -14,28 +14,35 @@ ofps::define_descriptor!(almeida, Estimator, |_| Ok(Box::new(
     AlmeidaEstimator::default()
 )));
 
-const EPS: f32 = 0.01745329f32;
+const EPS: f32 = 0.001 * std::f32::consts::PI / 180.0;
+const ALPHA: f32 = 0.5;
 
 pub trait MotionModel {
-    fn roll(&self, coords: na::Point2<f32>) -> na::Vector2<f32>;
+    fn roll(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32>;
 
-    fn pitch(&self, coords: na::Point2<f32>) -> na::Vector2<f32>;
+    fn pitch(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32>;
 
-    fn yaw(&self, coords: na::Point2<f32>) -> na::Vector2<f32>;
+    fn yaw(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32>;
+
+    fn point_angle(&self, p: na::Point2<f32>) -> na::Vector2<f32>;
 }
 
 impl MotionModel for StandardCamera {
-    fn roll(&self, coords: na::Point2<f32>) -> na::Vector2<f32> {
+    fn roll(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
         // We use different camera axis compared to what nalgebra considers as RPY
-        self.delta(coords, na::Matrix4::from_euler_angles(0.0, 0.0, -EPS))
+        self.delta(coords, na::Matrix4::from_euler_angles(0.0, 0.0, -eps))
     }
 
-    fn pitch(&self, coords: na::Point2<f32>) -> na::Vector2<f32> {
-        self.delta(coords, na::Matrix4::from_euler_angles(-EPS, 0.0, 0.0))
+    fn pitch(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
+        self.delta(coords, na::Matrix4::from_euler_angles(-eps, 0.0, 0.0))
     }
 
-    fn yaw(&self, coords: na::Point2<f32>) -> na::Vector2<f32> {
-        self.delta(coords, na::Matrix4::from_euler_angles(0.0, EPS, 0.0))
+    fn yaw(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
+        self.delta(coords, na::Matrix4::from_euler_angles(0.0, eps, 0.0))
+    }
+
+    fn point_angle(&self, p: na::Point2<f32>) -> na::Vector2<f32> {
+        StandardCamera::point_angle(self, p)
     }
 }
 
@@ -75,13 +82,58 @@ impl Estimator for AlmeidaEstimator {
         camera: &StandardCamera,
         _move_magnitude: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
-        let model = if self.use_ransac {
-            solve_ypr_ransac(motion_vectors, camera, self.num_iters)
-        } else {
-            solve_ypr(camera, motion_vectors)
-        } * EPS;
+        let mut rotation = na::UnitQuaternion::identity();
 
-        let rotation = na::UnitQuaternion::from_euler_angles(-model.y, model.z, -model.x);
+        let mut eps = EPS;
+
+        let mut inliers = if self.use_ransac {
+            vec![]
+        } else {
+            motion_vectors.iter().copied().collect()
+        };
+
+        let limit = (15.0 / ALPHA).ceil() as usize;
+
+        for i in 0..limit {
+            let model = if i == 0 && self.use_ransac {
+                let (model, new_inliers) =
+                    solve_ypr_ransac(motion_vectors, camera, self.num_iters, eps);
+                inliers = new_inliers;
+                model
+            } else {
+                solve_ypr(camera, &inliers, eps)
+            };
+
+            let epsmax = model.x.abs().max(model.y.abs()).max(model.z.abs());
+
+            if epsmax <= f32::EPSILON {
+                break;
+            }
+
+            let last_iter = i == limit - 1 || epsmax <= 1.0;
+
+            // If the last iteration, step fully.
+            let alpha = if last_iter { 1.0 } else { ALPHA };
+
+            let model = model * eps * alpha;
+
+            let rot = na::UnitQuaternion::from_euler_angles(-model.y, model.z, -model.x);
+
+            let rotm =
+                na::UnitQuaternion::from_euler_angles(-model.y, model.x, -model.z).to_homogeneous();
+
+            for (pos, motion) in &mut inliers {
+                let delta = camera.delta(*pos, rotm);
+                *pos += delta;
+                *motion -= delta;
+            }
+
+            rotation *= rot;
+
+            if last_iter {
+                break;
+            }
+        }
 
         Ok((rotation, na::Vector3::default()))
     }
@@ -123,14 +175,19 @@ fn solve_ypr_given(motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])]) -> na::V
     decomp.solve(&b).unwrap_or_default()
 }
 
-fn solve_ypr(camera: &impl MotionModel, field: &[MotionEntry]) -> na::Vector3<f32> {
+fn solve_ypr(camera: &impl MotionModel, field: &[MotionEntry], eps: f32) -> na::Vector3<f32> {
     let motion = field
         .iter()
         .copied()
         .map(|(pos, motion)| {
             (
                 pos,
-                [motion, camera.yaw(pos), camera.pitch(pos), camera.roll(pos)],
+                [
+                    motion,
+                    camera.yaw(pos, eps),
+                    camera.pitch(pos, eps),
+                    camera.roll(pos, eps),
+                ],
             )
         })
         .collect::<Vec<_>>();
@@ -142,21 +199,27 @@ fn solve_ypr_ransac(
     field: &[MotionEntry],
     camera: &impl MotionModel,
     num_iters: usize,
-) -> na::Vector3<f32> {
+    eps: f32,
+) -> (na::Vector3<f32>, Vec<MotionEntry>) {
     let motion = field
         .iter()
         .copied()
         .map(|(pos, motion)| {
             (
                 pos,
-                [motion, camera.yaw(pos), camera.pitch(pos), camera.roll(pos)],
+                [
+                    motion,
+                    camera.yaw(pos, eps),
+                    camera.pitch(pos, eps),
+                    camera.roll(pos, eps),
+                ],
             )
         })
         .collect::<Vec<_>>();
 
     let mut best_fit = Default::default();
-    let mut max_inliers = 0;
-    let target_delta = 0.0001;
+    let mut best_inliers = vec![];
+    let target_delta = 0.1;
 
     let rng = &mut rand::thread_rng();
 
@@ -177,43 +240,49 @@ fn solve_ypr_ransac(
 
         let inliers = motion
             .iter()
-            .map(|(pos, vec)| (sample_ypr_model(fit, *pos, camera), vec[0], pos, vec))
+            .map(|(pos, vec)| (sample_ypr_model(fit, *pos, vec), vec[0], pos, vec))
             .filter(|(sample, actual, pos, vec)| {
                 // Sum the (error / target_delta).min(1.0)
 
                 if actual.magnitude() == 0.0 {
                     true
                 } else {
-                    /*let c = -*sample;
-                    let d = *actual - *sample;
-
-                    let t = (c.dot(&d) / d.dot(&d)).abs();
-
-                    //println!("{}", t);
-
-                    t <= target_delta*/
-                    (*actual - *sample).magnitude()/* / actual.magnitude()*/ <= target_delta
+                    let pos = *pos + *actual;
+                    let angle = camera.point_angle(pos);
+                    let cosang = na::matrix![angle.x.cos(); angle.y.cos()];
+                    (*actual - *sample).component_mul(&cosang).magnitude() <= target_delta
                 }
             })
             .map(|(a, b, pos, vec)| (*pos, *vec))
             .collect::<Vec<_>>();
 
-        if inliers.len() > max_inliers {
+        if inliers.len() > best_inliers.len() {
             best_fit = solve_ypr_given(inliers.as_slice());
-            max_inliers = inliers.len();
-            //jkprintln!("{} | {}", max_inliers, best_fit);
+            best_inliers = inliers
+                .into_iter()
+                .map(|(a, [b, _, _, _])| (a, b))
+                .collect();
         }
     }
 
-    best_fit
+    (best_fit, best_inliers)
 }
+
+/*fn get_model_samples(
+    pos: na::Point2<f32>,
+    camera: &impl MotionModel,
+    eps: f32,
+) -> na::Vector3<f32> {
+    na::Vector3::new(camera.yaw(pos, eps), camera.pitch(pos, eps), camera.roll(pos, eps))
+}*/
 
 fn sample_ypr_model(
     model: na::Vector3<f32>,
     pos: na::Point2<f32>,
-    camera: &impl MotionModel,
+    vecs: &[na::Vector2<f32>; 4],
 ) -> na::Vector2<f32> {
-    camera.yaw(pos) * model.x + camera.pitch(pos) * model.y + camera.roll(pos) * model.z
+    //get_model_samples(pos, camera, eps).component_mul(&model);
+    vecs[1] * model.x + vecs[2] * model.y + vecs[3] * model.z
 }
 
 #[cfg(test)]
@@ -246,7 +315,7 @@ pub mod tests {
     fn calc_view(rot: na::UnitQuaternion<f32>, pos: na::Point3<f32>) -> na::Matrix4<f32> {
         na::Matrix4::look_at_rh(
             &pos,
-            &(pos + rot.transform_vector(&na::Vector3::new(0.0, 1.0, 0.0))),
+            &(pos + rot.transform_vector(&na::Vector3::new(0.0, -1.0, 0.0))),
             &rot.transform_vector(&na::Vector3::new(0.0, 0.0, 1.0)),
         )
     }
@@ -270,50 +339,70 @@ pub mod tests {
             .collect()
     }
 
-    #[test]
-    fn test_rotation() {
-        const ROT: f32 = 1.0;
-
-        let angles = [
-            (0.0, 0.0, 0.0),
-            (ROT, 0.0, 0.0),
-            (0.0, ROT, 0.0),
-            (0.0, 0.0, ROT),
-            (ROT, ROT, 0.0),
-            (ROT, 0.0, ROT),
-            (0.0, ROT, ROT),
-            (ROT, ROT, ROT),
-        ];
-
+    fn test_rot(mut estimator: AlmeidaEstimator) {
         let camera = StandardCamera::new(90.0, 90.0);
 
         let mut grid = get_grid(50, 50, &camera);
 
-        for rot in angles.iter().map(|&(r, p, y)| {
-            na::UnitQuaternion::from_euler_angles(r.to_radians(), p.to_radians(), y.to_radians())
-        }) {
-            let p1 = project_grid(
-                &grid,
-                &camera,
-                calc_view(Default::default(), Default::default()),
-            );
-            let p2 = project_grid(&grid, &camera, calc_view(rot, Default::default()));
+        for rot in [0.01f32, 0.1, 1.0, 10.0] {
+            let angles = [
+                (0.0, 0.0, 0.0),
+                (rot, 0.0, 0.0),
+                (0.0, rot, 0.0),
+                (0.0, 0.0, rot),
+                (rot, rot, 0.0),
+                (rot, 0.0, rot),
+                (0.0, rot, rot),
+                (rot, rot, rot),
+            ];
 
-            let field = calc_field(p1, p2);
+            for q in angles.iter().map(|&(r, p, y)| {
+                na::UnitQuaternion::from_euler_angles(
+                    r.to_radians(),
+                    p.to_radians(),
+                    y.to_radians(),
+                )
+            }) {
+                let p1 = project_grid(
+                    &grid,
+                    &camera,
+                    calc_view(Default::default(), Default::default()),
+                );
+                let p2 = project_grid(&grid, &camera, calc_view(q, Default::default()));
 
-            let mut estimator = AlmeidaEstimator::default();
-            let (r, tr) = estimator.estimate(&field, &camera, None).unwrap();
+                let field = calc_field(p1, p2);
 
-            let delta = rot.angle_to(&r).to_degrees();
+                let (r, tr) = estimator.estimate(&field, &camera, None).unwrap();
 
-            assert!(
-                delta < 0.1 * ROT,
-                "{:?} vs {:?}: {} > {}",
-                rot.euler_angles(),
-                r.euler_angles(),
-                delta,
-                0.1 * ROT
-            );
+                let delta = q.angle_to(&r).to_degrees();
+
+                println!("E: {}", delta / rot);
+
+                assert!(
+                    delta < 0.1 * rot,
+                    "{:?} vs {:?}: {} > {}",
+                    q.euler_angles(),
+                    r.euler_angles(),
+                    delta,
+                    0.1 * rot
+                );
+            }
         }
+
+        panic!()
+    }
+
+    #[test]
+    fn test_rotation_default() {
+        let estimator = AlmeidaEstimator::default();
+        test_rot(estimator);
+    }
+
+    #[test]
+    fn test_rotation_ransac() {
+        let mut estimator = AlmeidaEstimator::default();
+        estimator.use_ransac = true;
+        estimator.num_iters = 100;
+        test_rot(estimator);
     }
 }

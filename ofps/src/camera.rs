@@ -123,14 +123,46 @@ impl StandardCamera {
 
     /// Get camera intrinsic parameters.
     pub fn intrinsics(&self) -> na::Matrix3<f32> {
-        let fx = 1.0 / (self.fov_x.to_radians() / 2.0).tan();
-        let fy = 1.0 / (self.fov_y.to_radians() / 2.0).tan();
+        let fx = 0.5 / (self.fov_x.to_radians() / 2.0).tan();
+        let fy = 0.5 / (self.fov_y.to_radians() / 2.0).tan();
 
         na::matrix![
             fx, 0.0, 0.5;
             0.0, fy, 0.5;
             0.0, 0.0, 1.0
         ]
+    }
+
+    /// Get horizontal and vertical angle of a point in radians.
+    ///
+    /// # Arguments
+    ///
+    /// * `p` - point to have the angles computed for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use assert_approx_eq::assert_approx_eq;
+    /// use ofps::camera::StandardCamera;
+    /// use nalgebra as na;
+    ///
+    /// let camera = StandardCamera::new(90.0, 90.0);
+    ///
+    /// let angle = camera.point_angle(na::matrix![1.0; 0.5].into());
+    ///
+    /// assert_approx_eq!(angle.x.to_degrees(), 45.0f32, 0.01);
+    /// ```
+    pub fn point_angle(&self, p: na::Point2<f32>) -> na::Vector2<f32> {
+        let intrinsics = self.intrinsics();
+
+        // Center the point.
+        let p = p - intrinsics.fixed_slice::<2, 1>(0, 2);
+
+        let tan = p
+            .coords
+            .component_div(&na::matrix![intrinsics[(0, 0)]; intrinsics[(1, 1)]]);
+
+        na::matrix![tan.x.atan(); tan.y.atan()]
     }
 
     /// Get the camera's field of view.

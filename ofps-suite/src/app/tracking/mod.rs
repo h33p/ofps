@@ -309,10 +309,7 @@ impl MotionTrackingApp {
 
         let (offset_factor, x_scale) = {
             let intrinsics = self.app_settings.camera.intrinsics();
-            (
-                intrinsics[(1, 1)] * 0.5,
-                intrinsics[(1, 1)] / intrinsics[(0, 0)],
-            )
+            (intrinsics[(1, 1)], intrinsics[(1, 1)] / intrinsics[(0, 0)])
         };
 
         // Render any layered frames
