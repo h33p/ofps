@@ -1,7 +1,7 @@
 use super::utils::{
     camera_controller::CameraController,
     perf_stats::{perf_stats_options, perf_stats_windows, DrawPerfStats},
-    properties::{properties_grid_ui, properties_ui},
+    properties::{properties_grid_ui, properties_ui, transfer_props},
     ui_misc::{jlabel, realtime_processing, realtime_processing_fn, transparent_windows},
 };
 use super::widgets::{
@@ -545,7 +545,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                                 properties_ui(
                                     ui,
                                     &mut settings.decoder_properties,
-                                    state.as_ref().map(|s| &s.decoder_properties),
+                                    state.as_ref().and_then(|s| s.decoder_properties.as_ref()),
                                 );
 
                                 clicked_close
@@ -674,11 +674,25 @@ impl OfpsCtxApp for MotionTrackingApp {
                                 );
                                 ui.end_row();
 
+                                // If there is no app state, then update the properties here, as
+                                // opposed to the worker.
+                                if app_state_lock.is_none() {
+                                    if let Ok(Some(est)) = est.lock().as_deref_mut() {
+                                        transfer_props(
+                                            est.props_mut(),
+                                            &settings.properties.clone(),
+                                            &mut settings.properties,
+                                        );
+                                    }
+                                }
+
                                 let props =
                                     app_state_lock.as_ref().and_then(|s| s.estimators.get(i));
 
-                                let props =
-                                    props.map(Option::as_ref).flatten().map(|s| &s.properties);
+                                let props = props
+                                    .map(Option::as_ref)
+                                    .flatten()
+                                    .and_then(|s| s.properties.as_ref());
 
                                 properties_ui(ui, &mut settings.properties, props);
 

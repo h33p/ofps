@@ -42,6 +42,10 @@ pub fn properties_ui(
     settings_properties: &mut BTreeMap<String, Property>,
     in_properties: Option<&BTreeMap<String, Property>>,
 ) {
+    if let Some(in_properties) = in_properties {
+        settings_properties.clear();
+    }
+
     // Add any properties available
     if let Some(in_properties) = in_properties {
         for (n, p) in in_properties {

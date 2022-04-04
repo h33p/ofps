@@ -57,7 +57,7 @@ pub struct EstimatorState {
     pub times: Vec<Duration>,
     pub layered_frames: Vec<(usize, Arc<Mutex<FrameState>>)>,
     pub clear_count: usize,
-    pub properties: BTreeMap<String, Property>,
+    pub properties: Option<BTreeMap<String, Property>>,
 }
 
 impl EstimatorState {
@@ -332,7 +332,7 @@ impl TrackingState {
         let (motion_vectors, frame, frame_height, time) =
             match self.decoder.results.as_mut().unwrap().recv() {
                 Ok(DecoderResult { frame, time, props }) => {
-                    out.decoder_properties = props;
+                    out.decoder_properties = Some(props);
                     match frame {
                         Ok((mv, f, fh)) => (mv, f, fh, time),
                         Err(_) => return false,
@@ -355,11 +355,11 @@ impl TrackingState {
             .par_bridge()
             .for_each(|(estimator_state, (estimator, _, est_settings))| {
                 if let Ok(Some(estimator)) = estimator.lock().as_deref_mut() {
-                    transfer_props(
-                        estimator.props_mut(),
-                        &est_settings.properties,
-                        &mut estimator_state.properties,
-                    );
+                    let mut props = estimator_state.properties.take().unwrap_or_default();
+
+                    transfer_props(estimator.props_mut(), &est_settings.properties, &mut props);
+
+                    estimator_state.properties = Some(props);
 
                     let timer = Instant::now();
                     if let Ok((frot, tr)) = estimator.estimate(&motion_vectors, camera, None) {
@@ -425,7 +425,7 @@ impl Workable for TrackingState {
 pub struct TrackingOutput {
     pub estimators: Vec<Option<EstimatorState>>,
     pub decoder_times: Vec<Duration>,
-    pub decoder_properties: BTreeMap<String, Property>,
+    pub decoder_properties: Option<BTreeMap<String, Property>>,
 }
 
 #[derive(Clone)]

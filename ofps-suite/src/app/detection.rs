@@ -126,17 +126,23 @@ impl MotionDetectionState {
         self.decoder_times.push(timer.elapsed());
         out.frames = self.frames;
 
+        let mut detector_properties = out.detector_properties.take().unwrap_or_default();
+        let mut decoder_properties = out.decoder_properties.take().unwrap_or_default();
+
         transfer_props(
             self.detector.props_mut(),
             &settings.detector_properties,
-            &mut out.detector_properties,
+            &mut detector_properties,
         );
 
         transfer_props(
             self.decoder.props_mut(),
             &settings.decoder_properties,
-            &mut out.decoder_properties,
+            &mut decoder_properties,
         );
+
+        out.detector_properties = Some(detector_properties);
+        out.decoder_properties = Some(decoder_properties);
 
         let timer = Instant::now();
         out.motion = self.detector.detect_motion(&out.motion_vectors);
@@ -183,8 +189,8 @@ struct MotionDetectionOutput {
     motion_ranges: Vec<(usize, usize)>,
     detector_times: Vec<Duration>,
     decoder_times: Vec<Duration>,
-    decoder_properties: BTreeMap<String, Property>,
-    detector_properties: BTreeMap<String, Property>,
+    decoder_properties: Option<BTreeMap<String, Property>>,
+    detector_properties: Option<BTreeMap<String, Property>>,
 }
 
 impl MotionDetectionOutput {
@@ -324,7 +330,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                                 ui,
                                 "decoder_properties",
                                 &mut self.settings.worker.decoder_properties,
-                                Some(&state.decoder_properties),
+                                state.decoder_properties.as_ref(),
                             );
 
                             std::mem::drop(app_state_lock);
@@ -497,8 +503,15 @@ impl OfpsCtxApp for MotionDetectionApp {
 
                                     ui.label("Motion:");
 
-                                    if let Some((motion, _)) = &state.motion {
-                                        ui.label(format!("{} blocks", motion));
+                                    if let Some((motion, mf)) = &state.motion {
+                                        let (w, h) = mf.dim();
+                                        let sz = w * h;
+                                        let motion = if sz == 0 {
+                                            0.0
+                                        } else {
+                                            *motion as f32 / sz as f32
+                                        };
+                                        ui.label(format!("{motion}%"));
                                     } else {
                                         ui.label("None");
                                     }
@@ -510,7 +523,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             detector_props_ui(
                                 ui,
                                 &mut self.settings,
-                                output.as_ref().map(|a| &a.detector_properties),
+                                output.as_ref().and_then(|a| a.detector_properties.as_ref()),
                             );
 
                             ui.label("Dominant motion:");
@@ -564,7 +577,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                             detector_props_ui(
                                 ui,
                                 &mut self.settings,
-                                output.as_ref().map(|a| &a.detector_properties),
+                                output.as_ref().and_then(|a| a.detector_properties.as_ref()),
                             );
 
                             false
