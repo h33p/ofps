@@ -29,6 +29,9 @@ pub struct CvDecoder {
     gray_tmp: Mat,
     gray: Mat,
     old_gray: Mat,
+    sobel: Mat,
+    thresh: Mat,
+    mask: Mat,
     flow: Mat,
     aspect_ratio_scale: (usize, usize),
     max_mfield_size: (usize, usize),
@@ -63,6 +66,9 @@ impl CvDecoder {
             gray: Default::default(),
             gray_tmp: Default::default(),
             old_gray: Default::default(),
+            sobel: Default::default(),
+            mask: Default::default(),
+            thresh: Default::default(),
             flow: Default::default(),
             aspect_ratio_scale,
             max_mfield_size,
@@ -78,8 +84,6 @@ impl Decoder for CvDecoder {
         skip: usize,
     ) -> Result<bool> {
         let mut cnt = 0;
-
-        let skip = 0;
 
         while cnt <= skip {
             if self.capture.read(&mut self.frame)? {
@@ -145,6 +149,43 @@ impl Decoder for CvDecoder {
             0,
         )?;
 
+        let winsize = 5;
+
+        // Calculate sobel mask
+        opencv::imgproc::sobel(
+            &self.gray,
+            &mut self.sobel,
+            opencv::core::CV_32F,
+            1,
+            1,
+            winsize,
+            1.0,
+            0.0,
+            opencv::core::BORDER_DEFAULT,
+        )?;
+
+        opencv::imgproc::threshold(
+            &self.sobel,
+            &mut self.thresh,
+            40.0,
+            255.0,
+            opencv::imgproc::THRESH_BINARY,
+        )?;
+
+        opencv::imgproc::dilate(
+            &self.thresh,
+            &mut self.mask,
+            &opencv::imgproc::get_structuring_element(
+                opencv::imgproc::MORPH_ELLIPSE,
+                opencv::core::Size::new(winsize * 2 + 1, winsize * 2 + 1),
+                opencv::core::Point::new(winsize, winsize),
+            )?,
+            opencv::core::Point::new(-1, -1),
+            1,
+            opencv::core::BORDER_DEFAULT,
+            opencv::imgproc::morphology_default_border_value()?,
+        )?;
+
         let frame_norm = na::Vector2::new(
             1f32 / self.gray.cols() as f32,
             1f32 / self.gray.rows() as f32,
@@ -152,6 +193,12 @@ impl Decoder for CvDecoder {
 
         for y in 0..self.gray.rows() {
             for x in 0..self.gray.cols() {
+                let mask: &f32 = self.mask.at_2d(y, x).unwrap();
+
+                if *mask < 0.1 {
+                    continue;
+                }
+
                 let dir: &Point2f = self.flow.at_2d(y, x)?;
 
                 let pos = na::Vector2::new(x as f32, y as f32)
