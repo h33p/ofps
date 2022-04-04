@@ -154,7 +154,7 @@ A Detector takes a list of normalised motion vectors and outputs whether there i
 
 \subsubsection{Properties}
 
-Properties trait is implemented by all plugins. It is a trait that provides a list of string, boolean, floating point and integer properties that are available to be configured when using unknown decoder, estimator or detector. This trait is useful when paired with the plugin system, and is used by the OFPS Suite application to provide further user control.
+Properties trait is implemented by all plugins. It is a trait that provides a list of string, boolean, floating point and integer properties that are available to be configured when using arbitrary decoder, estimator or detector. This trait is useful when paired with the plugin system, and is used by the OFPS Suite application to provide further user control.
 
 \subsection{Plugin System}
 
@@ -177,8 +177,6 @@ AV decoder has its crate named mvec-av, and is responsible for decoding motion v
 \subsection{OpenCV Farneback}
 
 OpenCV decoder has its crate named mvec-cv, and is responsible for computing optical flow using Gunnar-Farneback algorithm\cite{Farnebck2003TwoFrameME}. The computed flow is then outputted to the user. Gunnar-Farneback algorithm calculates a semi-dense optical flow, meaning most of the pixels contain motion information. If the area is of very low contrast, or there is no motion, that pixel will have have motion value equal to $\overrightarrow{0}$. Thus, there is a trade-off between returning all zero vectors, which could potentially skew the results in motion, or no zero vectors, which could skew the results when there is no camera motion. To solve this, a mask is applied to only output motion vectors in high contrast areas. The mask is computed by using sobel filter that is then thresholded and dilated. This proved to work well in both scenarios.
-
-TODO: implement masking.
 
 (Figure: motion vector mask)
 
@@ -228,13 +226,13 @@ Inside the pipeline we use either libmv's 7 or 8 point fundamental matrix algori
 
 \subsubsection{Triangulation}
 
-Fundamental matrix resolves translational camera motion up to a scale factor, i.e. there is an implicit ambiguity\cite{hartley_zisserman_2004} of global translation: $\overrightarrow{t}_g = s\overrightarrow{t}$, where $\overrightarrow{t}$ is translation, decomposed from $F$ and $s$ is the unknown scale factor. This ambiguity can not be resolved without more data - at least a third view is needed.
+Fundamental matrix resolves translational camera motion up to a scale factor, i.e. there is an implicit ambiguity\cite{hartley_zisserman_2004} of global translation: $\overrightarrow{t}_g = s\overrightarrow{t}$, where $\overrightarrow{t}$ is translation decomposed from $F$, and $s$ is the unknown scale factor. This ambiguity can not be resolved without more data - at least a third view is needed.
 
-This paragram introduces an algorithm for global scale triangulation. Assuming the camera is moving non-colinearly, current and previous motion vectors could be combined to build the relationship between 3 most recent views in the form of fundamental matrices $F_{12}$, $F_{23}$ and $F_{13}$. Decomposing the fundamental matrices we get 3 translation values $\overrightarrow{t}_{12}$, $\overrightarrow{t}_{23}$ and $\overrightarrow{t}_{13}$. In a noise-free environment, $s_{13}\overrightarrow{t}_{13} = \overrightarrow{t}_{g_{12}} + s_{23}\overrightarrow{t}_{23}$, where we assume that $\overrightarrow{t}_{g_{12}}$ is global translation of the previous frame. Solving $s_{23}$ allows us to compute a new vector $\overrightarrow{t}_{g_{23}} = s_{23}\overrightarrow{t}_{23}$, which is of consistent scale factor with $\overrightarrow{t}_{g_{12}}$. Continuing this process on the following frame is the same, except that $\overrightarrow{t}_{g_{23}}$ is now used as anchor for global scale.
+This paragraph introduces an algorithm for global scale triangulation. Assuming the camera is moving non-colinearly, current and previous motion vectors could be combined to build the relationship between 3 most recent views in the form of fundamental matrices $F_{12}$, $F_{23}$ and $F_{13}$. Decomposing the fundamental matrices we get 3 translation values $\overrightarrow{t}_{12}$, $\overrightarrow{t}_{23}$ and $\overrightarrow{t}_{13}$. In a noise-free environment, $s_{13}\overrightarrow{t}_{13} = \overrightarrow{t}_{g_{12}} + s_{23}\overrightarrow{t}_{23}$, where we assume that $\overrightarrow{t}_{g_{12}}$ is global translation of the previous frame. Solving $s_{23}$ by scaling it and $s_{13}$ until the equality matches allows us to compute a new vector $\overrightarrow{t}_{g_{23}} = s_{23}\overrightarrow{t}_{23}$, which is of consistent scale factor with $\overrightarrow{t}_{g_{12}}$. Continuing this process on the following frame is the same, except that $\overrightarrow{t}_{g_{23}}$ is now used as anchor for global scale.
 
 (Figure: triangulation)
 
-The main problem is accuracy. As stated earlier, tracking points with optical flow introduces error, thus accuracy of the relationship between the first and the third view is uncertain. In addition, if the camera moves colinearly, triangulation is not possible. Then the points need to be tracked for more frames, which introduces further error and there is no reliable way to tell the scaling of the colinear view transforms. Thus, usability of this algorithm is uncertain.
+The main problem is accuracy. As stated earlier, tracking points with optical flow introduces error, thus accuracy of the relationship between the first and the third view is uncertain, and the translation vectors will not perfectly match. Inside our implementation we perform LU decomposition and solve for the scale factor that leads to a vector closest to the line defined by $\overrightarrow{t}_{13}$. However, if the camera moves colinearly, triangulation is not possible at all. Then, the points need to be tracked for more frames, which introduces further error and there is no reliable way to tell the scaling of the colinear view transforms. Thus, usability of this algorithm is uncertain.
 
 \subsection{multiview estimator}
 
@@ -258,51 +256,83 @@ If the largest island has area over a certain thershold, the detector returns th
 
 (Figure: block motion detection)
 
-\section{wimrend 3D renderer}
-
-Flexibility/stand-alonineness
-
-WGPU
-
-Renderer API
-
-Performance (instancing, mesh management)
-
-Custom render pass (for egui)
-
 \section{OFPS Suite}
 
-Simplicity to add apps.
+OFPS Suite is the simple to use frontend for optical flow processing. The key design decision was to allow building different optical flow processing applications in with ease. At the top bar there is a list of apps, which can be extended in code by simply adding additional elements to an array of apps. This could also be trivially extended to dynamically load the applications up, but that was not necessary for our project.
 
-Reusability
+(Figure: OFPS suite tabs, and array of apps in code)
+
+We used egui\cite{egui} immediate mode UI framework, which is backend agnostic and works both on desktop, and in the web. This framework was chosen for its simplicity and integration with the rest of the Rust ecosystem. It can be rendered on top of other graphics, such as a 3D view, which is featured in the motion tracking tab.
+
+Since dynamic OFPS plugin loading is at the heart of OFPS Suite, there is a single shared context that gets passed to the currently enabled app during render updates. The following subsections describe functionality and design of different OFPS Suite applications.
 
 \subsection{Motion Detection}
 
-Loading decoder
+Motion detection is the first application that was built for OFPS Suite. It provides the user a way to load up a video file or a stream using an arbitrary decoder, run motion detection using an arbitrary detector and then export timestamps of detection.
 
-Loading detector
+\subsubsection{Interface}
 
-Setting parameters
+To perform motion detection, the user needs to load a decoder. List of available decoding plugins is available, as well as input for a input path. By default, user is able to pick a video file with a file picker, but the widget can be toggled to allow for manual input, in cases such as TCP streams\footnote{To connect to a server at 192.168.0.92:3333, input tcp://192.168.0.92:3333}.
 
-Exporting timestamps
+Afterwards, the user needs to create a motion detection plugin. Similar structure is present in both of these widgets, because it was built in a modular way - the entire widget was defined by a trait that is implemented by OFPS plugin type, with minimal changes to suit their use case. 
 
-Profiling
+By clicking the "Detection" button, menu options show up allowing the user to save and load parameters of the application in JSON format. The same file picker widget is used as in decoder input.
 
-Multithreaded architecture
+Once both the decoder and the detector are created, video starts to be displayed. At the bottom there is a timeline displaying time regions with motion. On the left, additional information is available, such as the amount of motion in frame as well motion vectors that correspond to dominant motion. There also is an ability to enable an overlay of detected motion and a button to export the timeline in CSV format.
+
+It is possible to enable summary and graph of the performance metrics. The summary displays average performance of the decoder and the estimator, while the graph shows performance at individual frame level. This data can then be exported in CSV format.
+
+\subsubsection{Multithreaded Architecture}
+
+Performing optical flow field decoding is a relatively intensive task and it would be detrimental to the user experience, if it was done on the main thread. Thus, the application was split into 2 threads - UI and worker. UI communicates with the worker thread - it accesses the latest results available and submits the latest state of runtime settings. Both of these variables are protected with a locking mechanism, but the worker accesses them only briefly to write the results and read the latest settings. Overall, this architecture provides for a smooth experience to the user, regardless of processing intensity in the worker thread.
+
+(Figure: Multithreaded architecture)
 
 \subsection{Motion Tracking}
 
-Loading decoder
+Motion tracking is a more complex application that allows the user to create panoramas from video. It supports running multiple estimators simultaniously and also has built-in tools for comparing estimates to ground-truth data.
 
-Loading estimators
+\subsubsection{Interface}
 
-Setting parameters
+Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical and horizontal fields of view. Any number of estimators may be added. Each estimator can be configured with general properties and ones specific to each estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section.
 
-Ground truth comparison
+(Figure: panorama view example)
 
-Profiling
+A ground truth CSV file may be loaded for comparison. Blender files for the project's synthetic videos use a script to export the truth data. Upon loading the data, average per-frame error of each estimator can be seen (in degrees). These results can be exported, including indivudual per-frame errors and angles.
 
-Multithreaded architecture
+Similarly to the motion detection module, performance metrics are available. From the design standpoint, the exact same code is being run, thus providing streamlined user experience.
+
+\subsubsection{Multithreaded Architecture}
+
+Similar architecture to the one employed in motion detection app is also found here. However, due to the details concerning frame transfer to GPU and performance implications of running multiple estimators, it is more complex.
+
+When it comes to drawing frames, we are drawing multiple of them, instead of the latest one, and worker thread can not load them itself on the GPU - all frames need to be sent to the UI thread first. Thus, there is a communication channel between the two threads where references to drawn frames get sent to the UI thread, which then loads raw RGBA data as a texture on GPU.
+
+(Figure: frame loading loop)
+
+As for the estimators, they are being executed in parallel using rayon. However, motion estimation is a more complex task compared to simple boolean detection and the architecture would be suboptimal if decoding and estimation were to be run in sequence. Thus, there is another worker thread dedicated to motion vector extraction - the thread decodes the optical flow field and sends the results out through a synchronised channel. The key detail here is that the channel is set up to be rendezvous\cite{rust_sync_channel} - the decoder thread blocks until the main worker thread is able to receive the results, thus only a single frame gets processed ahead of time. Upon accepting the result, worker thread executes the estimators, while the decoder thread performs motion vector extraction.
+
+(Figure: main thread, worker thread, decoder thread)
+
+\section{wimrend 3D renderer}
+
+wimrend crate was built as a standalone 3D renderer for our OFPS Suite app. While it was designed for the purposes of OFPS motion tracking visualisation, general usage was considered to make the architecture modular, flexible and otherwise clean. wimrend uses wgpu crate for lower level graphics API calls. wgpu is a mid-level abstraction of WebGPU - a rendering and computation API for the web browsers. However, wgpu implements a number of different backends, such as Vulkan, OpenGL, Metal, WebGL, Direct3D 11 and 12, while keeping the same mid-level API for setting up GPU buffers, render passes, issuing draw calls etc. Thus, wgpu was a clear choice for us, due to its portability and fine-grained control of the rendering process.
+
+\subsection{Renderer API}
+
+A minimal API was designed for drawing 3D objects on the scene in immediate mode. There is a function for drawing a mesh with custom material, colour and 3D pose onto screen. The renderer handles lower level details, such as loading meshes and materials on the GPU, writing pose and colour information into the instance buffer\footnote{A buffer that stores minimal set of properties that differ between individual objects}. The user only needs to add objects to render each frame, and set up scene parameters, such as camera view and background colour. There also is a function for 3D line rendering - these lines can be occluded by objects, as they are rendered on the same render pass.
+
+All materials, textures and meshes are being stored in deduplicated reference counted manner. If a material is no longer used, its shaders will be unloaded from the GPU, if a texture is not being used, its buffer will be freed as well. The only current limitation is with meshes - the mesh manager does not track whether a mesh is used or not and it does not get unloaded until the program exits. However, this can only become a problem when an object with constantly changing geometry is being drawn, and OFPS Suite does not do that. Reloading meshes comes at a performance penalty, thus it was decided against doing it.
+
+\subsection{Performance}
+
+GPUs are parallel processing devices that incur heavy latency in sequential calls, thus one of the biggest bottlenecks in older graphics engines is the number of draw calls being issued. Modern rendering engines solve this by using a technique called instancing. Recent graphics APIs provide a way to draw a list of identical meshes using slightly different per-instance parameters, hence the name instancing. Given a list of objects our renderer partitions the objects in a way that minimises the number of draw calls being issued. Each instanced batch depends on the rendering pipeline being used (shaders of the material), textures being bound, and the mesh. The final per-instance parameters, such as object's transformation matrix and colour are then being provided as a list in a single instanced draw call.
+
+\subsection{Additional rendering}
+
+The previous sections only described the process of drawing 3D objects onto the scene, however, user interface needs to be drawn as well. This is done in the form of additional render passes. Once 3D objects are drawn, egui, or other rendering engine can layer their drawing operations on top. This is enabled through the RenderSubState trait. The trait accepts input, pre-render and on-render events which allow to drive custom app logic and perform any custom rendering operations. OFPS suite makes use of this trait to draw its GUI on top.
+
+(Figure: rendering process)
 
 \chapter{Results}
 
