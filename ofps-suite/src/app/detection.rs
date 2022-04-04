@@ -732,7 +732,12 @@ impl OfpsCtxApp for MotionDetectionApp {
 
                         let angle = (motion.x.atan2(motion.y) + std::f32::consts::PI)
                             / (2.0 * std::f32::consts::PI);
-                        let color = color::Hsva::new(angle, 1.0, 1.0, motion.magnitude());
+
+                        let mag = motion.magnitude();
+
+                        let mag = if mag > 0.0 { mag * 0.9 + 0.1 } else { mag };
+
+                        let color = color::Hsva::new(angle, 1.0, 1.0, mag);
 
                         painter.rect_filled(
                             Rect {

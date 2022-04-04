@@ -34,7 +34,7 @@ pub struct EstimatorSettings {
 impl Default for EstimatorSettings {
     fn default() -> Self {
         Self {
-            scale_factor: 1.0,
+            scale_factor: 0.0,
             camera_offset: 1.0,
             layer_frames: true,
             layer_angle_delta: 0.5,

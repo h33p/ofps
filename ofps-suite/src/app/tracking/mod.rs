@@ -828,7 +828,7 @@ impl OfpsCtxApp for MotionTrackingApp {
                                                         &est.transforms,
                                                     );
                                                 for v in [err, err_r, err_p, err_y] {
-                                                    jlabel(ui, format!("{:.03}", v.to_degrees()));
+                                                    jlabel(ui, format!("{:.03}°", v.to_degrees()));
                                                 }
                                             } else {
                                                 for _ in 0..4 {
