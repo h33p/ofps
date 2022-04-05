@@ -174,11 +174,21 @@ Several optical flow generation methods were developed. They are split into sepa
 
 AV decoder has its crate named mvec-av, and is responsible for decoding motion vectors using LibAV and FFMPEG. It supports H.264 decoding and extraction of motion vectors. Several container types are supported, such as MKV, MP4, and MOV. We had to set up a custom input stream for LibAV to be able to process any Rust byte stream. The library always performs full H.264 decoding, thus performance may not be optimal for our case. A way to solve this would be to patch libav to only output motion vectors\cite{libav-patch}, but that would require non-standard build procedures. On the other hand, results will show that it still is sufficiently performant.
 
-\subsection{OpenCV Farneback}
+\subsection{OpenCV}
 
-OpenCV decoder has its crate named mvec-cv, and is responsible for computing optical flow using Gunnar-Farneback algorithm\cite{Farnebck2003TwoFrameME}. The computed flow is then outputted to the user. Gunnar-Farneback algorithm calculates a semi-dense optical flow, meaning most of the pixels contain motion information. If the area is of very low contrast, or there is no motion, that pixel will have have motion value equal to $\overrightarrow{0}$. Thus, there is a trade-off between returning all zero vectors, which could potentially skew the results in motion, or no zero vectors, which could skew the results when there is no camera motion. To solve this, a mask is applied to only output motion vectors in high contrast areas. The mask is computed by using sobel filter that is then thresholded and dilated. This proved to work well in both cases.
+OpenCV decoder has its crate named mvec-cv, and is responsible for computing optical flow using either Gunnar-Farneback algorithm\cite{Farnebck2003TwoFrameME} or RLOF\cite{rlof}. The computed flow is then outputted to the user.
+
+\subsubsection{Gunnar-Farneback}
+
+Gunnar-Farneback algorithm calculates a semi-dense optical flow, meaning most of the pixels contain motion information. If the area is of very low contrast, or there is no motion, that pixel will have have motion value equal to $\overrightarrow{0}$. Thus, there is a trade-off between returning all zero vectors, which could potentially skew the results in motion, or no zero vectors, which could skew the results when there is no camera motion. To solve this, a mask is applied to only output motion vectors in high contrast areas. The mask is computed by using sobel filter that is then thresholded and dilated. This proved to work well in both cases.
 
 (Figure: motion vector mask)
+
+\subsubsection{RLOF}
+
+Robust Local Optical Flow is a newer optical flow computation method. We implemented it, because it appears to be more accurate then Gunnar-Farneback's algorithm. This algorithm can be toggled through the properties system.
+
+(Figure: Gunnar-Farneback vs. RLOF)
 
 \section{Motion estimation}
 
@@ -197,6 +207,8 @@ The metric used to check whether a sample is an inlier or not depends on the pro
 Given a pixel in the view at angle $\alpha$ from the center of view, rotating the camera towards that point by small angle $\theta$ will produce apparent motion that is higher than the motion at the center of view by the factor of $\frac{1}{cos(\alpha)}$. Thus, given a point at angle $\alpha$, its motion vector $\overrightarrow{v}$, model estimate $\overrightarrow{h}$ and theshold $c$, determening whether a sample is an inlier or an outlier can be done by checking whether $||\overrightarrow{h} - \overrightarrow{v}|| * cos(\alpha) \leq c$ holds true. However, vertical and horizontal angles can differ significantly, which could lead to high tolerances for error in non-dominant motion, thus our implementation computes 2 different angles $\alpha_x$ and $\alpha_y$ for horizontal and vertical axis respectively. Afterwards, $||(cos(\alpha_x) (h_x - v_x); cos(\alpha_y) (h_y - v_y))|| \leq c$ is used to determine whether the inlier status of the data sample.
 
 (Figure: screen distortion at the edges)
+
+Our RANSAC implementation is further modified to improve runtime performance, compared to simple least-squares method. It is done by taking a fixed random subset of samples during inlier checking, instead of iterating every motion vector. This results in lower computational complexity while still retaining sufficiently large number of samples for fitting the mean.
 
 \subsubsection{Iterative optimisation}
 
@@ -272,11 +284,13 @@ Motion detection is the first application that was built for OFPS Suite. It prov
 
 \subsubsection{Interface}
 
-To perform motion detection, the user needs to load a decoder. List of available decoding plugins is available, as well as input for a video stream. By default, user is able to pick a file with a file picker, but the widget can be toggled to allow for keyboard input, in cases such as TCP streams\footnote{To connect to a server at 192.168.0.92:3333, input tcp://192.168.0.92:3333}.
+To perform motion detection, the user needs to load a decoder. List of available decoding plugins is available, as well as input for a video stream. By default, user is able to pick a file with a file dialog, but the widget can be toggled to allow for keyboard input, in cases such as TCP streams\footnote{To connect to a server at 192.168.0.92:3333, input tcp://192.168.0.92:3333}.
+
+\textbf{Note:} the file dialog was built with rfd crate, and it was observed that at least in GNOME environments the dialog occasionally does not close. It appears to be an upstream issue, however, and not much can be done from our side.
 
 Afterwards, the user needs to create a motion detection plugin. Similar structure is present in both of these widgets, because it was built in a modular way - the entire widget was defined by a trait that is implemented by each OFPS plugin type with minimal changes to suit their individual use case. 
 
-By clicking the "Detection" button, menu options show up allowing the user to save and load parameters of the application in JSON format. The same file picker widget is used as in decoder input.
+By clicking the "Detection" button, menu options show up allowing the user to save and load parameters of the application in JSON format. The same file dialog widget is used as in decoder input.
 
 Once both the decoder and the detector are created, video starts to be displayed. At the bottom of the window a timeline is visible displaying time regions with motion. On the left, additional information is available, such as the amount of motion in the frame as well motion vectors that correspond to dominant motion. There also is an ability to enable an overlay of detected motion and a button to export the timeline in CSV format.
 
@@ -336,24 +350,79 @@ The previous subsections only described the process of drawing 3D objects onto t
 
 \chapter{Results}
 
-History: point tracking
+In this section we provide end results of the project. Effectiveness of the motion detection is evaluated, estimators are compared against ground truth data, and modularity of OFPS is evaluated. Functionality of OFPS Suite has already been detailed in methods.
 
-\section{Performance}
+\section{Detection}
 
-\section{Accuracy}
+\section{Estimation}
 
-\section{Application}
+In order to test the estimators a large number of tests were conducted using different video files, optical flow computation methods, and estimator configurations. This section briefly explains the configuration and evaluates results collected in those configurations.
+
+In total, 192 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution).
+
+We attempted to track translational movement of the camera as well, but the performance of libmv and multiview estimators was unsuitable for analysis. Even using prior knowlege of the video to normalise estimated translation vectors did not yield accurate results. Thus, we decided against testing that.
+
+(Figure: noisy translation)
+
+\subsection{Runtime Performance}
+
+Overall the trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in all conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. Overall, the fastest estimator here is \ldots
+
+(Figure: avg performance graph)
+
+Interesting characteristics emerge, when taking a closer look at performance results.
+
+\subsection{Accuracy}
+
+By far the most accurate estimator is our modified implementation of the method proposed by Almeida et al. Specifically, RANSAC version performs particularly well. Only in the fourth environment does it start to loose to the least-squares configuration. This could be attributed to the flows being very noisy.
+
+(Figure: 3 graphs, 1 decoder per graph, either all 8 clips, or 4 clips with double lines for static/dynamic)
+
+\subsection{Real-world data}
+
+The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator is able to accurately track camera motion and panorama view gets created.
+
+(Figure: panorama view)
+
+\section{OFPS}
+
+Optical Flow Processing Stack can be evaluated by its modularity. The core library consists of a thousand lines of code, which is reused by the plugin crates. Each plugin averages around 300 lines of code and only concerns itself with providing functionality with minimal boilerplate code.
+
+(Figure: code size)
+
+From the user's perspective, motion estimation can be easily performed with the following code:
+
+\begin{minted}[numbersep=5pt,frame=lines,framesep=2mm,linenos]{rust}
+let store = PluginStore::new();
+
+let mut decoder = store.create_decoder("av", "input.mp4".into())?;
+let mut estimator = store.create_estimator("almeida", Default::default())?;
+
+let mut mv = vec![];
+let mut pos = Default::default();
+let mut rot = Default::default();
+
+while let Ok(_) = decoder.process_frame(&mut mv, None, 0) {
+    estimator.motion_step(&mv, camera, None, &mut rot, &mut pos)?;
+    println!("{pos:?} | {:?}", rot.euler_angles());
+}
+\end{minted}
 
 \chapter{Conclusion}
 
-\section{Future Work}
+This project showed that stationary camera motion tracking is viable using MPEG motion vectors with a motion estimator that was built specifically for resolving 3 degrees of rotation freedom. We were also able to conclude that position of the camera is not trackable using conventional multiple view geometry based methods and that MPEG vectors are too noisy for the task. However, they are also useful for other tasks, such as motion detection. A modular library was built enabling simple a path to building different optical flow calculation methods, motion estimators and detectors. A sophisticated application was built on top of the stack enabling any user to perform motion detection and estimation tasks. A 3D renderer was designed from scratch to aid visualising the results.
 
-Alternatively, we could compute the trifocal tensor\cite{hartley_zisserman_2004}, however, it would need to be a separate estimator module, since libmv does not contain this functionality.
+\section{Discussion and Future Work}
 
-\subsection{HEVC Motion Extraction}
+Overall, the project achieved its main goals of building a modular optical flow processing stack and with it, building applications of MPEG motion vector processing. However, there are several improvements that could be done, given more time.
 
-High Efficiency Video Coding, also known as H.265 or MPEG-H Part 2, was published in 2013, and contains a lot of changes compared to previous standards. For starters, the I-frames are using a new image format, known as High Efficiency Image Format, or HEIF in short. Furthermore, HEVC does not use fixed size macroblocks - it instead uses Coding Tree Units (CTUs) that vary in size between $16 \times 16$ and $64 \times 64$ pixels\cite{h265}.
-HEVC has the potential to contain more accurate motion information, thus it would be interesting to write a custom decoding module for H.265 streams.
+It would be very interesting to see just how fast motion vector extraction is using a custom H.264 stream decoder that does not perform any frame reconstruction. We observed that libav is able to process individual packets very fast, however, the decoding step was the most intensive.
+
+In addition, it would be interesting to look at other video encoding standards. High Efficiency Video Coding, also known as H.265 or MPEG-H Part 2, was published in 2013, and contains a lot of changes compared to previous standards. For starters, the I-frames are using a new image format, known as High Efficiency Image Format, or HEIF in short. Furthermore, HEVC does not use fixed size macroblocks - it instead uses Coding Tree Units (CTUs) that vary in size between $16 \times 16$ and $64 \times 64$ pixels\cite{h265}. While AVC is only able to represent 8 directions of motion, HEVC transform blocks can move in 31 different directions. Thus, HEVC has the potential to contain more accurate motion information and it would be interesting to write a custom decoding module for H.265 streams. Furthermore, we did not look at any video encoders designed by AOM\footnote{Alliance for Open Media}, such as AV1, which contains more complex prediction features, such as global motion compensation\cite{av1}\cite{av1_global_motion}, and it would be beneficial to conduct further research, given the first AV1 encoding capable graphics cards have recently been made available.
+
+We were unable to track camera's translational motion using optical flow methods. Given more time, we could have attempted to develop a more robust solution. One possible solution would be to compute the trifocal tensor\cite{hartley_zisserman_2004}. Another way would be to reconstruct 3D position of the inliers and attempt aligning them with the previous frame, which is a very similar approach to the one employed by VOLDOR, however, it is still uncertain whether any of these solutions would work.
+
+It was very surprising to see how well the modified Almeida estimator performed, compared to other proven methods. Building a model that fits within the constraints appears to be highly beneficial, and while other estimators have more degrees of freedom, their accuracy suffers in simpler cases. The modularity of our optical flow processing stack opens possibilities to conduct further research in this field with less preparation work.
 
 \printbibliography
 

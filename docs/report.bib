@@ -20,6 +20,27 @@
   pages={II-195},
   doi={10.1109/CVPR.2003.1211470}}
 
+@article{tao2012simpleflow,
+  author = {Tao, Michael and Bai, Jiamin and Kohli, Pushmeet and Paris, Sylvain},
+  title = {SimpleFlow: A Non-iterative, Sublinear Optical Flow Algorithm},
+  year = {2012},
+  month = {May},
+  abstract = {Optical flow is a critical component of video editing applications, e.g. for tasks such as object tracking, segmentation, and selection. In this paper, we propose an optical flow algorithm called SimpleFlow whose running times increase sublinearly in the number of pixels. Central to our approach is a probabilistic representation of the motion flow that is computed using only local evidence and without resorting to global optimization. To estimate the flow in image regions where the motion is smooth, we use a sparse set of samples only, thereby avoiding the expensive computation inherent in traditional dense algorithms. We show that our results can be used as is for a variety of video editing tasks. For applications where accuracy is paramount, we use our result to bootstrap a global optimization. This significantly reduces the running times of such methods without sacrificing accuracy. We also demonstrate that the SimpleFlow algorithm can process HD and 4K footage in reasonable times.},
+  publisher = {John Wiley & Sons, Inc.},
+  url = {https://www.microsoft.com/en-us/research/publication/simpleflow-non-iterative-sublinear-optical-flow-algorithm-2/},
+  pages = {345-353},
+  journal = {Computer Graphics Forum},
+  volume = {31},
+}
+
+@inproceedings{rlof,
+  author = {Geistert, Jonas and Senst, Tobias and Sikora, Thomas},
+  year = {2016},
+  month = {01},
+  pages = {1-5},
+  title = {Robust local optical flow: Dense motion vector field interpolation},
+  doi = {10.1109/PCS.2016.7906352}
+}
 
 @misc{cglue, author={Blažulionis, Aurimas}, title = {CGlue - Rust ABI safe code generator}, url = {https://github.com/h33p/cglue}}
 
@@ -38,6 +59,10 @@
 @misc{rayon, author={Rayon team}, title = {Rayon repository}, url = {https://github.com/rayon-rs/rayon}}
 
 @misc{webgpu, author={W3C}, title = {WebGPU}, url = {https://gpuweb.github.io/gpuweb/}}
+
+@misc{av1, author={Alliance for Open Media}, title = {AV1 Standard}, url = {https://aomediacodec.github.io/av1-spec/av1-spec.pdf}}
+
+@misc{av1_global_motion, author={Alliance for Open Media}, title = {Global Motion Compensation}, url = {https://github.com/AOMediaCodec/SVT-AV1/blob/master/Docs/Appendix-Global-Motion.md}}
 
 @misc{h264, author={ITU-T}, title = {Advanced video coding for generic audiovisual services}, url = {https://www.itu.int/rec/T-REC-H.264}}
 
