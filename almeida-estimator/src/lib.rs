@@ -61,6 +61,7 @@ pub struct AlmeidaEstimator {
     use_ransac: bool,
     /// Number of iterations for ransac.
     num_iters: usize,
+    cnt: usize,
 }
 
 impl Properties for AlmeidaEstimator {
@@ -92,13 +93,25 @@ impl Estimator for AlmeidaEstimator {
             motion_vectors.iter().copied().collect()
         };
 
-        let limit = (15.0 / ALPHA).ceil() as usize;
+        let limit = 5;//(15.0 / ALPHA).ceil() as usize;
+
+        self.cnt += 1;
+        println!("{}", self.cnt);
+
+        use std::io::Write;
 
         for i in 0..limit {
             let model = if i == 0 && self.use_ransac {
                 let (model, new_inliers) =
                     solve_ypr_ransac(motion_vectors, camera, self.num_iters, eps);
                 inliers = new_inliers;
+
+                let mut f = std::fs::File::create("docs/report/mfield/base.csv").unwrap();
+                write!(&mut f, "x,y,u,v\n").unwrap();
+                for (pos, motion) in &inliers {
+                    write!(&mut f, "{},{},{},{}\n", pos.coords.x, pos.coords.y, motion.x, motion.y).unwrap();
+                }
+
                 model
             } else {
                 solve_ypr(camera, &inliers, eps)
@@ -122,8 +135,11 @@ impl Estimator for AlmeidaEstimator {
             let rotm =
                 na::UnitQuaternion::from_euler_angles(-model.y, model.x, -model.z).to_homogeneous();
 
+            let mut f = std::fs::File::create(format!("docs/report/mfield/{i}.csv")).unwrap();
+            write!(&mut f, "x,y,u,v\n").unwrap();
             for (pos, motion) in &mut inliers {
                 let delta = camera.delta(*pos, rotm);
+                write!(&mut f, "{},{},{},{}\n", pos.coords.x, pos.coords.y, delta.x, delta.y).unwrap();
                 *pos += delta;
                 *motion -= delta;
             }

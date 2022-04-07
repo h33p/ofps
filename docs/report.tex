@@ -20,6 +20,7 @@
 \usepackage[backend=bibtex,style=numeric]{biblatex}
 \bibliography{docs/report}
 \usepackage{hyperref}
+\usepackage[section]{placeins}
 \hypersetup{
     colorlinks,
     citecolor=black,
@@ -49,6 +50,16 @@
   \array{#1}}
 \makeatother
 
+\newcommand*{\angleframe}[7]{%
+\begin{scope}[xshift  =#4, yshift = #5,
+			every node/.append style = {yslant = #7},
+			yslant = #7,
+			local bounding box = #2]
+\node[#1] at (#6,#6) {};
+\node[label, yslant = -#7, above right=9em and -0.75em of #2.south east](#2-label) {#3};
+\end{scope}
+}
+
 \author{
 	Aurimas Blažulionis (2069871)\\
 	Alexander Krull\\
@@ -72,13 +83,28 @@ Tracking camera motion is an important task in many industries, including film, 
 
 Camera motion estimation is a task of determining how a camera moves in 3D space over time. Film industry relies on this task being performed accurately in order to overlay computer generated imagery atop filmed video, augmented reality applications attempt to perform the same process, but in realtime, while robotics industry has given this task the name of "visual odometry", and plenty of research has been put in performing it accurately on a live robot, while also extending it to perform dense reconstruction, simultanious localisation and mapping.
 
-Typically, it is done by extracting moving features across frames and using a sufficient number of them to solve parameters of some camera motion model (description of camera motion). Two distinct classes of feature extraction methods emerge: feature tracking and optical flow based. Feature tracking sparsely picks out highly contrasting parts of a frame and follows them for as many frames as possible. Meanwhile, optical flow represents apparent motion of objects across 2 consecutive frames and it can either be sparse or dense. An optical flow field is effectively a list of point and vector pairs representing 2D motion at given pixel coordinates. The key difference between these 2 methods is that feature tracking can represent motion with less error across a sequence of frames, while optical flow typically has more information for 2 consecutive frames, at a loss of continuity. Given the sheer amount of pixels needed to be processed, feature extraction step is often more expensive than 3D motion estimation. For instance, MaskFlowNet\cite{zhao2020maskflownet}, a state of the art dense optical flow generation method takes upwards of 300 milliseconds to compute per frame on a laptop GPU, while VOLDOR\cite{voldor} visual odometry system takes just 100 milliseconds to consume the outputted optical flow field and produce accurate visual odometry data.
+Typically, it is done by extracting moving features across frames and using a sufficient number of them to solve parameters of some camera motion model (description of camera motion). Two classes of feature extraction methods emerge: feature tracking and optical flow based. Feature tracking sparsely picks out highly contrasting parts of a frame and follows them for as many frames as possible. Meanwhile, optical flow represents apparent motion of objects across 2 consecutive frames and it can either be sparse or dense. An optical flow field is effectively a list of point and vector pairs representing 2D motion at given pixel coordinates. The key difference between these 2 methods is that feature tracking can represent motion with less error across a sequence of frames, while optical flow typically has more information for 2 consecutive frames, at a loss of continuity. Given the sheer amount of pixels needed to be processed, feature extraction step is often more expensive than 3D motion estimation. For instance, MaskFlowNet\cite{zhao2020maskflownet}, a state of the art dense optical flow generation method takes upwards of 300 milliseconds to compute per frame on a laptop GPU, while VOLDOR\cite{voldor} visual odometry system takes just 100 milliseconds to consume the outputted optical flow field and produce accurate visual odometry data.
 
-(Figure: Feature tracking vs. Optical Flow)
+\begin{figure}[!ht]
+	\centering
+	\begin{subfigure}{180pt}
+		\includegraphics[width=180pt]{docs/report/feature-tracking.jpg}
+		\caption{\centering Feature tracking.}
+	\end{subfigure}
+	\begin{subfigure}{180pt}
+		\includegraphics[width=180pt]{docs/report/optical-flow.jpg}
+		\caption{\centering Optical flow.}
+	\end{subfigure}
+	\caption{\centering Feature tracking vs. Optical Flow. Tracking detects several key features and follows them over time, while optical flow aims to calculate direction vectors for a larger number of pixels.}
+\end{figure}
 
-Moving Picture Experts Group (MPEG) have designed a number of video encoding standards which heavily compress video files at low perceptual quality loss and they are ubiquitous to the point where most commodity hardware dedicate part of their silicon space for accelerated encoding and decoding of the latest MPEG video codecs - H.264/AVC\footnote{Advanced Video Coding}\cite{h264} and H.265/HEVC\cite{h265}. The way this compression works is that blocks of pixels get moved between frames in accordance to encoded motion vectors and only a small amount of new pixels are encoded to fill in the gaps and make small adjustments to the resulting frame. Essentially, to save space video encoding relies on apparent motion estimation, or in other words - optical flow field computation. Many hardware accelerated H.264 encoders are able to process over 30 frames per second at resolutions of 1080p, thus if one could extract the encoded motion in a H.264 stream, a highly efficient motion estimation pipeline could be built to produce 3D motion data in realtime. However, the primary task of a video encoder is to compress video, not to compute accurate optical flow, thus the resulting motion field is noisy\cite{1334181} and not as dense as one would prefer. As a result, their usability for 3D motion estimation is uncertain.
+Moving Picture Experts Group (MPEG) have designed a number of video encoding standards which heavily compress video files at low perceptual quality loss and they are ubiquitous to the point where most commodity hardware dedicate part of their silicon space for accelerated encoding and decoding of the latest MPEG video codecs - H.264/AVC\footnote{Advanced Video Coding}\cite{h264} and H.265/HEVC\cite{h265}. The way this compression works is that blocks of pixels get moved between frames in accordance to encoded motion vectors and only a small amount of new pixels are encoded to fill in the gaps and make small adjustments to the resulting frame. Essentially, to save space video encoding relies on apparent motion estimation, or in other words - optical flow field computation. Many hardware accelerated H.264 encoders are able to process over 30 frames per second at resolutions of 1080p, thus if one could extract the encoded motion in a H.264 stream, a highly efficient motion estimation pipeline could be built to produce 3D motion data in realtime. However, the primary task of a video encoder is to compress video, not to compute accurate optical flow, thus the resulting motion field is noisy\cite{1334181} (see figure 1.2) and not as dense as one would prefer. As a result, their usability for 3D motion estimation is uncertain.
 
-(Figure: MPEG motion vectors)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=190pt]{docs/report/mpeg-mvecs.jpg}
+	\caption{\centering Still frame reference and optical flow from MPEG motion vectors.}
+\end{figure}
 
 This project analyses MPEG motion vectors, compares them against industry standard optical flow computation methods, looks at the ways they can be used in realtime operation and in the process we build a framework alongside an app for performing several motion processing tasks, such as motion detection and estimation.
 
@@ -96,7 +122,7 @@ There is recent work on creating visual odometry from dense optical flow fields\
 
 \begin{figure}[!ht]
 	\centering
-	\includegraphics[width=150pt]{docs/report/mpeg-maskflownet.jpg}
+	\includegraphics[width=190pt]{docs/report/mpeg-maskflownet.jpg}
 	\caption{\centering MaskFlowNet (above) vs. MPEG (below).}
 \end{figure}
 
@@ -104,7 +130,7 @@ Neither of the mentioned work solves the our problem completely. Thus, we believ
 
 \chapter{Background}
 
-This chapter introduces several concepts related to the project, most notably lower level details of MPEG compression and basics of epipolar geometry.
+This chapter introduces several concepts related to the project, most notably lower level details of MPEG compression, basics of epipolar geometry, and formal description of the problems we aim to solve.
 
 \section{MPEG Video}
 
@@ -114,15 +140,43 @@ Motion Picture Experts Group has developed a number of video encoding standards 
 
 Various video streaming websites serve H.264 encoded video. YouTube recommends a 1080p video to be encoded at the bitrate of 8 megabits per second\cite{youtube}. For context, a single $1920 \times 1080$ RGB frame is nearly 8 megabytes of size, while a single JPEG will average between 100 and 300 kilobytes in size. For a 30 FPS video, YouTube asks each frame to average 34 kilobytes in size - that is $1/470$th of a raw frame, and around $1/5$th of a JPEG. Yet, a video with such high compression will look sufficiently high quality for a viewer not to notice any artifacts. The reason this is possible is due to intra-frame compression.
 
-An MPEG video consists of several sparsely placed intra-frames, known as \textbf{I-frames} and series of predicted frames (\textbf{P-frames} and \textbf{B-frames}). Intra-frame is effectively a JPEG image, while a predicted frame contains changes since the previous frame. The only difference between P and B frames is that P frames only look at a frame behind, while B frames predict bi-directionally between the previous frame and the I-frame that comes right afterwards. A single intra-frame and all subsequent predicted frames form a group of pictures, known as GoP.
+An MPEG video consists of several sparsely placed intra-frames, known as \textbf{I-frames} and series of predicted frames (\textbf{P-frames} and \textbf{B-frames}). Intra-frame is effectively a JPEG image, while a predicted frame contains changes in relation to other frames. The difference between P and B frames is that P frames only look at a keyframe behind (I or P frame), while B frames are interpolated bi-directionally between the previous and the next keyframes. A single intra-frame and all subsequent predicted frames form a group of pictures, known as GoP.
 
-(Diagram showing a GoP and the different frames within)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		\tikzset{
+			basefont/.style = {font = \Large\sffamily},
+			timing/.style = {basefont, sloped,above,},
+			label/.style = {basefont, align = left},
+			angleframe/.style = {basefont, white, align = center, minimum size = 2cm, fill = black!60, draw = white},
+			iframe/.style = {angleframe, fill = black!80},
+			pframe/.style = {angleframe, fill = black!40},
+			bframe/.style = {angleframe, fill = black!60},
+		};
+
+		\angleframe{iframe}{frame1}{I}{0}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{12}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{24}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{36}{0}{1cm}{0.77}
+		\angleframe{pframe}{frame3}{P}{48}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{60}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{72}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{84}{0}{1cm}{0.77}
+		\angleframe{pframe}{frame3}{P}{96}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{108}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{120}{0}{1cm}{0.77}
+		\angleframe{bframe}{frame2}{B}{132}{0}{1cm}{0.77}
+		\angleframe{iframe}{frame1}{I}{144}{0}{1cm}{0.77}
+	\end{tikzpicture}
+	\caption{\centering A GoP of size 12. The ending I-frame starts the next GoP.}
+\end{figure}
 
 Predicted frames is how MPEG video is able to achieve such a high compression ratio. In AVC, each frame contains a number of transform and prediction macroblocks. Transform blocks are $4 \times 4$ or $8 \times 8$ sized chunks that describe new pixel values at part of the frame in a way where chroma values are subsampled to save space. Prediction blocks are $4 \times 4$ to $16 \times 16$ pixel sized chunks that get shifted across frames and motion of each macroblock is defined by a motion vector $\overrightarrow{v}$ - pixel data is reused and only moved from one location to the next. The motion of prediction blocks will be needed by the project and an extraction module will be built.
 
 \subsubsection{"Datamoshing"}
 
-An interesting experiment can be done to visualise how MPEG works by intentionally corrupting the encoded stream. In non-scientific literature this process is known as datamoshing. If a video contains just a single GoP, it is possible to replace the only I-frame in the video with a different image and visualy see what changes are encoded in the predicted frames throughout the entire clip. Most notably, high contrast areas are likely to be moved in accordance to camera motion, while low contrast areas are likely to blur themselves out due to the noisiness of the encoded motion vectors (see figure 2.1).
+An interesting experiment can be done to visualise how MPEG works by intentionally corrupting the encoded stream. In non-scientific literature this process is known as datamoshing. If a video contains just a single GoP, it is possible to replace the only I-frame in the video with a different image and visualy see what changes are encoded in the predicted frames throughout the entire clip. Most notably, high contrast areas are likely to be moved in accordance to camera motion, while low contrast areas are likely to blur themselves out due to the noisiness of the encoded motion vectors (see figure 2.2).
 
 \begin{figure}[!ht]
 	\centering
@@ -145,7 +199,11 @@ An interesting experiment can be done to visualise how MPEG works by intentional
 
 The pinhole camera model is the simplest mathematical description of coordinate relationship in 3D space to their projection onto image plane of a camera. In this model, camera's aperature is described as a point, there are no lenses, and by extension - image distortion. Pinhole camera has a focal length $f$ that describes distance of the image plane to the aperature. Given a 2D point $p = (x, y)$, its projection on 1D image line will be on point $p_1 = -y * \frac{f}{x}$. The same concept extends to 3D space, except the points are projected onto 2D plane.
 
-(Figure: geometry of a pinhole camera)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=270pt]{docs/report/pinhole-camera.jpg}
+	\caption{\centering Geometry of a pinhole camera. All projections are originally upside down, but they get flipped in post-processing.}
+\end{figure}
 
 \section{Two-View Geometry}
 
@@ -153,11 +211,15 @@ Two-view geometry, also known as epipolar geometry concerns itself about the rel
 
 Given a first view point $l = (kx, ky, k)$ in homogeneous coordinates, its correspondance in the second view $l' = (kx', ky', k)$, and relative pose between the views, these points can be intersected and a point in 3D space may be resolved. However, often times, pose of the views is unknown. Thus, to perform triangulation, relationship between the 2 views needs to be calculated from a number of 2D point correspondances in the form of a fundamental matrix.
 
-(Figure: epipolar geometry)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=270pt]{docs/report/epipolar-geometry.jpg}
+	\caption{\centering Two-view geometry. Epipolar lines can be seen across the views, and they intersect in 3D space.}
+\end{figure}
 
 \subsection{The fundamental matrix}
 
-The fundamental matrix is an algebraic representation of epipolar geometry. It is a $3 \times 3$ matrix of rank 2. If a point in 3-space $X$ is imaged as $x$ in the first view (in homogeneous coordinates), and $x'$ in the second, then the image points satisfy the relation $x'^T F x = 0$\cite{hartley_zisserman_2004}. The fundamental matrix has 7 degrees of freedom - it depends on both view pose changes, and intrinsic camera parameters. Several industry standard libraries implement algorithms for robust fundamental matrix estimation, such as Blender's libmv and OpenCV. There is a recent paper describing robust estimation from only 5 data points\cite{8578130}. Once a fundamental matrix is known, and given intrinsic camera parameters, it is possible to compute 3D positions of the 2D point correspondances, through the process of triangulation.
+The fundamental matrix is an algebraic representation of epipolar geometry. It is a $3 \times 3$ matrix of rank 2. If a point in 3-space $X$ is imaged as $x$ in the first view (in homogeneous coordinates), and $x'$ in the second, then the image points satisfy the relation $x'^T F x = 0$\cite{hartley_zisserman_2004}, i.e. $Fx$ becomes perpendicular to $x'$. The fundamental matrix has 7 degrees of freedom - it depends on both view pose changes, and intrinsic camera parameters. Several industry standard libraries implement algorithms for robust fundamental matrix estimation, such as Blender's libmv and OpenCV. There is a recent paper describing robust estimation from only 5 data points\cite{8578130}. Once a fundamental matrix is known, and given intrinsic camera parameters, it is possible to compute 3D positions of the 2D point correspondances, through the process of triangulation.
 
 \subsection{The essential matrix}
 
@@ -243,17 +305,25 @@ OpenCV decoder has its crate named mvec-cv, and is responsible for computing opt
 
 Gunnar-Farneback algorithm calculates a semi-dense optical flow, meaning most of the pixels contain motion information. If the area is of very low contrast, or there is no motion, that pixel will have have motion value equal to $\overrightarrow{0}$. Thus, there is a trade-off between returning all zero vectors, which could potentially skew the results in motion, or no zero vectors, which could skew the results when there is no camera motion. To solve this, a mask is applied to only output motion vectors in high contrast areas. The mask is computed by using sobel filter that is then thresholded and dilated. This proved to work well in both cases.
 
-(Figure: motion vector mask)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=190pt]{docs/report/gunnar-farneback-mask.jpg}
+	\caption{\centering Example of contrast mask built for Gunnar-Farneback post-processing (below), next to optical flow produced by the algorithm.}
+\end{figure}
 
 \subsubsection{RLOF}
 
 Robust Local Optical Flow is a newer optical flow computation method. We implemented it, because while Gunnar-Farneback is way more documented, RLOF appears to be more accurate then Gunnar-Farneback's algorithm. This algorithm can be toggled through the properties system.
 
-(Figure: Gunnar-Farneback vs. RLOF)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=190pt]{docs/report/farneback-vs-rlof.jpg}
+	\caption{\centering Farneback (above) method vs. RLOF (below) in the context of camera panning right.}
+\end{figure}
 
-%\subsubsection{Downsampling}
+\subsubsection{Downsampling}
 
-%High resolution dense optical flows are computationally expensive to process by motion estimators, thus it was desirable for us to produce lower resolution flows. However, ss part of our testing we noticed that low resolution image inputs lead to very low quality optical flows. Thus, we added an option to calculate optical flow using input image resolution, and then downsample it to lower resolution output.
+High resolution dense optical flows are computationally expensive to process by motion estimators, thus it was desirable for us to produce lower resolution flows. However, as part of our testing we noticed that low resolution image inputs lead to very low quality optical flows. Thus, we added an option to calculate optical flow using input image resolution, and then downsample it to lower resolution output.
 
 \section{Motion estimation}
 
@@ -283,21 +353,58 @@ Our RANSAC implementation is further modified to improve runtime performance, co
 
 We further improved the accuracy of the final estimate by iteratively applying the least squares fitting method until convergence (or iteration limit). This is a process similar to gradient descent, which is known in machine learning field. Every iteration we compute the model and take a fraction $\alpha$ of it to prevent overshooting (except for the final iteration when we ignore $\alpha$). The estimated rotation $r_i$ is applied on the inlier set - starting points get moved by the estimate and motion vectors get subtracted by it. $r_i$ is then applied on cumulative rotation: $r = r * r_i$. In the end, $r = r_0 * r_1 * \cdots * r_n$.
 
-(Figure: optimisation steps on the inlier set)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		\begin{axis}[width=0.6\textwidth,height=0.3775\textwidth,xmax=1,ymax=1,ymin=0.8,xmin=0.8]
+			\includegraphics[width=0.51\textwidth]{docs/report/mfield/frame.jpg}
+			\addplot[red,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/base.csv};
+			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/0.csv};
+			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/1.csv};
+			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/2.csv};
+			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/3.csv};
+			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/4.csv};
+		\end{axis}
+	\end{tikzpicture}
+	\caption{\centering Optimisation steps on the inlier set. Red arrows are raw motion vectors, green arrows model estimated rotation in 5 substeps.}
+\end{figure}
 
 \subsection{libmv estimator}
 
 Blender's libmv library provides functions used by their built-in motion tracking tools\cite{blender-motion-tracking}. The tools are based on feature tracking and multiple view geometry reconstruction. The highest level class performing the estimation is EuclideanReconstruction, however, it requires points to be tracked throughout the scene. That is not possible to do online, due to frames into the future being unknown, and point tracking using optical flow not being particularly accurate, given discontinuities between motion vectors. The latter can be solved by pre-processing the motion vectors into a dense fixed-resolution structure and sampling motion vectors based on the pixel each vector lands on, however, that adds error and there still exists a risk of motionless gaps. Thus, we attempted to build our own estimation pipeline using lower level functions and the estimator crate was named libmv-estimator.
 
-(Figure: fixed resolution motion field contains gaps)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=250pt]{docs/report/mvec-gaps.jpg}
+	\caption{\centering Motionless gaps in the dense motion field. Colour of each bright dot represents direction of motion, while visible background area indicates lack of motion within the dense optical flow field.}
+\end{figure}
 
 \subsubsection{Preparing libmv}
 
-Several changes needed to be made to compile libmv and they are available in commits fc7f41\cite{fc7f41a484c3cb8df94e71b591076ab3c9e84827}-14ba45\cite{14ba45e82847ff6bc98edad5abfd67c212328482} of our libmv fork\cite{libmv-fork}. The changes sum up to updating the APIs used in several third-party libraries, specifying typenames more correctly, and making changes in the CMake files to make the compilation work faster, and produce shared libraries out of the box. The fork has been added as a git submodule within libmv-rust directory.
+Several changes needed to be made to compile libmv, due to Fedora 35 packaging newer versions of libraries used by libmv, and they are available in commits fc7f41\footnote{fc7f41a484c3cb8df94e71b591076ab3c9e84827}-14ba45\footnote{14ba45e82847ff6bc98edad5abfd67c212328482} of our libmv fork\cite{libmv-fork}. The changes sum up to updating the APIs used in several third-party libraries, specifying typenames more correctly, and making changes in the CMake files to make the compilation work faster, and produce shared libraries out of the box. The fork has been added as a git submodule within libmv-rust directory.
 
 Any C++ libraries need first to be wrapped in C ABI before used from Rust, due to C++ not having a stable ABI. Thus, libmv-rust crate was created. The crate contains a minimal set of functions used by the estimator. These functions were wrapped in C++ and re-exposed with C ABI. Finally, idiomatic Rust functions were created that allow easily calling into those wrappers.
 
-(Figure: libmv-rust flow)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=7em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em}]
+		\draw (0,0) node[block] (A) {libmv-estimator};
+		\draw (4,0) node[block] (B) {libmv-rust};
+		\draw (8,0) node[block] (C) {libmv C};
+		\draw (12,0) node[block] (D) {libmv};
+		\path[->, thick]
+		(A)	edge node {} (B)
+		(B) edge node {} (C)
+		(C) edge node {} (D);
+
+	\end{tikzpicture}
+	\caption{\centering Flow of invoking libmv.}
+\end{figure}
 
 To use libmv-rust, location of compiled libmv libraries needs to be known. Thus, an environment file was created that can be sourced on linux using the source command.
 
@@ -311,7 +418,26 @@ Fundamental matrix resolves translational camera motion up to a scale factor, i.
 
 This paragraph introduces an algorithm for global scale triangulation. Assuming the camera is moving non-colinearly, current and previous motion vectors could be combined to build the relationship between 3 most recent views in the form of fundamental matrices $F_{12}$, $F_{23}$ and $F_{13}$. Decomposing the fundamental matrices we get 3 translation values $\overrightarrow{t}_{12}$, $\overrightarrow{t}_{23}$ and $\overrightarrow{t}_{13}$. In a noise-free environment, $s_{13}\overrightarrow{t}_{13} = \overrightarrow{t}_{g_{12}} + s_{23}\overrightarrow{t}_{23}$, where we assume that $\overrightarrow{t}_{g_{12}}$ is global translation of the previous frame. Solving $s_{23}$ by scaling it and $s_{13}$ until the equality matches allows us to compute a new vector $\overrightarrow{t}_{g_{23}} = s_{23}\overrightarrow{t}_{23}$, which is of consistent scale factor with $\overrightarrow{t}_{g_{12}}$. Continuing this process on the following frame is the same, except that $\overrightarrow{t}_{g_{23}}$ is now used as anchor for global scale.
 
-(Figure: triangulation)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=7em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em}]
+		\path[->, thick]
+		(0,0) edge node {$\overrightarrow{t}_{g_{12}}$} (1,1.7)
+		(1,1.7) edge node {$\overrightarrow{t}_{23}$} (3,1)
+		(0,0) edge node {$\overrightarrow{t}_{13}$} (2,0);
+		
+		\path[->, dashed]
+		(1,1.7) edge node {$\overrightarrow{t}_{g_{23}}$} (5.857,0)
+		(0,0) edge node {$\overrightarrow{t}_{g_{13}}$} (5.857,0);
+
+	\end{tikzpicture}
+	\caption{\centering Triangulation. Local translation vectors are merely used as directions, while previous global translation vector can be used to resolve global scale of the new relative translations.}
+\end{figure}
 
 The main problem is accuracy. As stated earlier, tracking points with optical flow introduces error, thus accuracy of the relationship between the first and the third view is uncertain, and the translation vectors will not perfectly match. Inside our implementation we perform LU decomposition and solve for the scale factor that leads to a vector closest to the line defined by $\overrightarrow{t}_{13}$. However, if the camera moves colinearly, triangulation is not possible at all. Then, the points need to be tracked for more frames, which introduces further error and there is no reliable way to tell the scaling of the colinear view transforms. Thus, usability of this algorithm is uncertain.
 
@@ -335,13 +461,21 @@ The next phase filters out noise and picks out motion that is of sufficiently la
 
 If the resulting island has area over a certain thershold, the detector returns that there is motion, as well as the island itself. Parameters for minimal motion, target area, and motion field resolution are configurable by the user through the Properties trait. If configured correctly, the algorithm filters out noise and checks whether there is a moving object big enough to be considered for detection.
 
-(Figure: block motion detection)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=350pt]{docs/report/detection.jpg}
+	\caption{\centering Block motion detection. Grid indicates the resolution of detection motion field, and purple area shows the largest resulting island. The car in the image is driving to the left.}
+\end{figure}
 
 \section{OFPS Suite}
 
 OFPS Suite is a graphical frontend for optical flow processing. The key design decision was to allow building in different optical flow processing applications with ease. At the top bar there is a list of apps, which can be extended in code by simply adding additional elements to an array of apps. This could also be trivially extended to dynamically load the applications up, but that was not necessary for our project.
 
-(Figure: OFPS suite tabs, and array of apps in code)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=250pt]{docs/report/ofps-suite-apps.jpg}
+	\caption{\centering OFPS Suite applications in code.}
+\end{figure}
 
 We used egui\cite{egui} immediate mode UI framework, which is backend agnostic and works both on desktop, and in the web. This framework was chosen for its simplicity and integration with the rest of the Rust ecosystem. It can be rendered on top of other graphics, such as a 3D view, which is featured in the motion tracking tab.
 
@@ -369,7 +503,65 @@ It is possible to enable a performance summary and graph. The summary displays a
 
 Performing optical flow field decoding is a relatively intensive task and it would be detrimental to the user experience, if it was done on the main thread. Thus, the application was split into 2 threads - UI and worker. UI communicates with the worker thread - it accesses the latest results available and submits the latest state of runtime settings. Both of these variables are protected with a locking mechanism, but the worker accesses them only briefly to write the results and to read the latest settings. Overall, this architecture provides a smooth experience to the user, regardless of processing intensity in the worker thread.
 
-(Figure: Multithreaded architecture)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=3.8em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em},
+		ui/.style = {block, text width=1.5em},
+		nonrect/.style = {text width=7em,align=right, minimum height=2em},
+		]
+		
+		\draw (-4.5,0) node[nonrect] (R1) {Worker thread:};
+		\draw (-4.5,-2) node[nonrect] (R1) {UI thread:};
+
+		\draw (-2,0) node[block] (R1) {Results};
+		\draw (0,0) node[block] (DE1) {Decode};
+		\draw (2,0) node[block] (DT1) {Detect};
+		\draw (4,0) node[block] (R2) {Results};
+		\draw (6,0) node[block] (DE2) {Decode};
+		\draw (8,0) node[block] (DT2) {Detect};
+		\draw (10,0) node[block] (R3) {Results};
+		\draw (-2,-2) node[ui] (U0) {UI};
+		\draw (-1,-2) node[ui] (U1) {UI};
+		\draw (0,-2) node[ui] (U2) {UI};
+		\draw (1,-2) node[ui] (U3) {UI};
+		\draw (2,-2) node[ui] (U4) {UI};
+		\draw (3,-2) node[ui] (U5) {UI};
+		\draw (4,-2) node[ui] (U6) {UI};
+		\draw (5,-2) node[ui] (U7) {UI};
+		\draw (6,-2) node[ui] (U8) {UI};
+		\draw (7,-2) node[ui] (U9) {UI};
+		\draw (8,-2) node[ui] (U10) {UI};
+		\draw (9,-2) node[ui] (U11) {UI};
+		\draw (10,-2) node[ui] (U12) {UI};
+
+		\path[->, thick, smooth]
+		(DE1) edge node {} (DT1)
+		(DT1) edge node {} (R2)
+		(DE2) edge node {} (DT2)
+		(DT2) edge node {} (R3)
+		(R1) edge[out=270,in=90,->] node {} (U0)
+		(R1) edge[out=280,in=95,->] node {} (U1)
+		(R1) edge[out=290,in=100,->] node {} (U2)
+		(R1) edge[out=300,in=105,->] node {} (U3)
+		(R1) edge[out=310,in=110,->] node {} (U4)
+		(R1) edge[out=320,in=110,->] node {} (U5)
+		(R2) edge[out=270,in=90,->] node {} (U6)
+		(R2) edge[out=280,in=95,->] node {} (U7)
+		(R2) edge[out=290,in=100,->] node {} (U8)
+		(R2) edge[out=300,in=105,->] node {} (U9)
+		(R2) edge[out=310,in=110,->] node {} (U10)
+		(R2) edge[out=320,in=110,->] node {} (U11)
+		(R3) edge[out=270,in=90,->] node {} (U12);
+		\path[->, thick]
+		(-5,-3.2) edge node {Time} (11,-3.2);
+	\end{tikzpicture}
+	\caption{\centering Multithreaded architecture of motion detector.}
+\end{figure}
 
 \subsection{Motion Tracking}
 
@@ -379,7 +571,17 @@ Motion tracking is a more complex application that allows the user to create pan
 
 Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical and horizontal fields of view. Any number of estimators may be added and each of them can be configured with general properties and ones specific to the estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section, and the camera can be orbitted around center of focus using the left mouse button, zoomed in and out with the scroll wheel, as well as panned with the mouse while holding the shift key.
 
-(Figure: panorama view example)
+\begin{figure}[!ht]
+	\centering
+	\centering
+	\begin{subfigure}{230pt}
+		\includegraphics[width=230pt]{docs/report/panorama2.jpg}
+	\end{subfigure}
+	\begin{subfigure}{230pt}
+		\includegraphics[width=230pt]{docs/report/panorama.jpg}
+	\end{subfigure}
+	\caption{\centering Panorama view. Yellow cube indicates the focus point around which the camera currently orbits around.}
+\end{figure}
 
 A ground truth CSV file may be loaded for comparison. Blender files for the project's synthetic videos use a script to export the truth data. Upon loading the data, average per-frame error of each estimator is computed and is shown in degrees. These results can then be exported, including indivudual per-frame errors and angles (in radians).
 
@@ -391,11 +593,111 @@ Similar architecture to the one employed in motion detection app can also be fou
 
 When it comes to drawing frames, we are drawing multiple of them, instead of just the latest one, and worker thread can not load them itself on the GPU - all frames need to be sent to the UI thread first. Thus, there is a communication channel between the two threads where references to drawn frames get sent to the UI thread, which then loads raw RGBA data as a texture on GPU.
 
-(Figure: frame loading loop)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=3.8em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em},
+		ui/.style = {block, text width=1.5em},
+		nonrect/.style = {text width=7em,align=right, minimum height=2em},
+		]
+		
+		\draw (-4.5,0) node[nonrect] (R1) {Worker thread:};
+		\draw (-4.5,-2) node[nonrect] (R1) {UI thread:};
+
+		\draw (-2,0) node[block] (R1) {Produce Frame};
+		\draw (0,0) node[block] (R2) {Make Ref};
+		\draw (2,0) node[block] (R3) {Send to UI};
+		\draw (4,0) node[block] (R4) {Store Ref};
+		\draw (2,-2) node[block] (U1) {Receive Frames};
+		\draw (4,-2) node[block] (U2) {Load to GPU};
+		\draw (6,-2) node[block] (U3) {Switch State};
+
+		\path[->, thick, smooth]
+		(R1) edge node {} (R2)
+		(R2) edge node {} (R3)
+		(R2) edge[out=90,in=90,->] node {} (R4)
+		(R3) edge[out=270,in=90,->] node {} (U1)
+		(U1) edge node {} (U2)
+		(U2) edge node {} (U3);
+		\path[->, thick]
+		(-5,-3.2) edge node {Time} (7,-3.2);
+	\end{tikzpicture}
+	\caption{\centering Sequence of loading RGBA data on the GPU.}
+\end{figure}
 
 As for the estimators, they are being executed in parallel using rayon\cite{rayon}. However, motion estimation is a more complex task compared to simple boolean detection and the architecture would be suboptimal if decoding and estimation were to run in sequence. Thus, there is another worker thread dedicated to motion vector extraction - the thread decodes the optical flow field and sends the results out through a synchronised channel. The key detail here is that the channel is set up to be rendezvous\cite{rust_sync_channel} - the decoder thread blocks until the main worker thread is able to receive the results, thus only a single frame gets processed ahead of time. Upon accepting the result, worker thread executes the estimators, while the decoder thread performs motion vector extraction.
 
-(Figure: main thread, worker thread, decoder thread)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=3.8em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em},
+		ui/.style = {block, text width=1.5em},
+		nonrect/.style = {text width=7em,align=right, minimum height=2em},
+		]
+		
+		\draw (-4.5,2) node[nonrect] (R1) {Decoder thread:};
+		\draw (-4.5,0) node[nonrect] (R1) {Worker thread:};
+		\draw (-4.5,-2) node[nonrect] (R1) {UI thread:};
+
+		\draw (-2,0) node[block] (R1) {Results};
+		\draw (-2,2) node[block] (DE1) {Decode};
+		\draw (0,0) node[block] (DT1) {Track};
+		\draw (2,0) node[block] (R2) {Results};
+		\draw (1,2) node[block] (DE2) {Decode};
+		\draw (4,0) node[block] (DT2) {Track};
+		\draw (6,0) node[block] (R3) {Results};
+		\draw (5,2) node[block] (DE3) {Decode};
+		\draw (8,0) node[block] (DT3) {Track};
+		\draw (10,0) node[block] (R4) {Results};
+		\draw (9,2) node[block] (DE4) {Decode};
+		\draw (-2,-2) node[ui] (U0) {UI};
+		\draw (-1,-2) node[ui] (U1) {UI};
+		\draw (0,-2) node[ui] (U2) {UI};
+		\draw (1,-2) node[ui] (U3) {UI};
+		\draw (2,-2) node[ui] (U4) {UI};
+		\draw (3,-2) node[ui] (U5) {UI};
+		\draw (4,-2) node[ui] (U6) {UI};
+		\draw (5,-2) node[ui] (U7) {UI};
+		\draw (6,-2) node[ui] (U8) {UI};
+		\draw (7,-2) node[ui] (U9) {UI};
+		\draw (8,-2) node[ui] (U10) {UI};
+		\draw (9,-2) node[ui] (U11) {UI};
+		\draw (10,-2) node[ui] (U12) {UI};
+
+		\path[->, thick, smooth]
+		(DE1) edge[out=270,in=90] node {} (DT1)
+		(DT1) edge node {} (R2)
+		(DE2) edge[out=270,in=90] node {} (DT2)
+		(DT2) edge node {} (R3)
+		(DE3) edge[out=270,in=90] node {} (DT3)
+		(DT3) edge node {} (R4)
+		(R1) edge[out=270,in=90,->] node {} (U0)
+		(R1) edge[out=280,in=95,->] node {} (U1)
+		(R1) edge[out=290,in=100,->] node {} (U2)
+		(R1) edge[out=300,in=105,->] node {} (U3)
+		(R2) edge[out=270,in=90,->] node {} (U4)
+		(R2) edge[out=280,in=95,->] node {} (U5)
+		(R2) edge[out=290,in=100,->] node {} (U6)
+		(R2) edge[out=300,in=105,->] node {} (U7)
+		(R3) edge[out=270,in=90,->] node {} (U8)
+		(R3) edge[out=280,in=95,->] node {} (U9)
+		(R3) edge[out=290,in=100,->] node {} (U10)
+		(R3) edge[out=300,in=105,->] node {} (U11)
+		(R4) edge[out=270,in=90,->] node {} (U12);
+		\path[->, thick]
+		(-5,-3.2) edge node {Time} (11,-3.2);
+
+	\end{tikzpicture}
+	\caption{\centering Multithreaded architecture of motion tracking app. Tracking steps are further split in parallel using rayon parallel for\_each loops.}
+\end{figure}
 
 \section{wimrend 3D renderer}
 
@@ -415,7 +717,39 @@ GPUs are parallel processing devices that incur heavy latency in sequential call
 
 The previous subsections only described the process of drawing 3D objects onto the scene, however, user interface needs to be drawn as well. This is done in the form of additional render passes. Once 3D objects are drawn, egui, or other rendering engine can layer their drawing operations on top. This is enabled through the RenderSubState trait. The trait accepts input, pre-render and on-render events which allow to drive custom app logic and perform custom rendering operations. OFPS suite makes use of this trait to draw its GUI on top.
 
-(Figure: rendering process)
+\begin{figure}[!ht]
+	\centering
+	\begin{tikzpicture}
+		[auto,
+		block/.style ={rectangle, draw=black, thick, fill=black!10, text width=9.3em,align=center, rounded corners, minimum height=2em},
+		line/.style ={draw, thick, -latex',shorten >=2pt},
+		cloud/.style ={draw=red, thick, ellipse,fill=red!20,
+		minimum height=1em},
+		ui/.style = {block, text width=2.5em},
+		nonrect/.style = {text width=7em,align=right, minimum height=2em},
+		]
+		
+		\draw (-2.5,0) node[block] (R1) {RenderState::update};
+		\draw (2.5,0) node[block] (R2) {RenderSubState::update};
+		\draw (4.5,-3) node[block] (R3) {EguiApp::update};
+		\draw (2.5,-6) node[block] (R4) {EguiApp::late\_update};
+		\draw (-2.5,-6) node[block] (R5) {RenderState::render};
+		\draw (-4.5,-3) node[block] (R6) {RenderSubState::render};
+		\draw (-3.5,-1.5) node[ui] (R7) {VSync};
+
+		\path[->, thick, smooth]
+		(R1) edge node {} (R2)
+		(R2) edge node {} (R3)
+		(R3) edge node {} (R4)
+		(R4) edge node {} (R5)
+		(R5) edge node {} (R6)
+		(R6) edge node {} (R7)
+		(R7) edge node {} (R1);
+
+	\end{tikzpicture}
+	\caption{\centering Render loop with OFPS Suite's substate.}
+\end{figure}
+
 
 \chapter{Results}
 
@@ -429,15 +763,19 @@ In order to test motion detection effectiveness, we placed the Raspberry Pi with
 
 In order to test the estimators a large number of tests were conducted using different video files, optical flow computation methods, and estimator configurations. This section briefly explains the configuration and evaluates results collected in those configurations.
 
-In total, 224 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution). We picked such low resolution, because epipolar geometry based estimators could not handle that many motion vectors, however, as results will show it leads to suboptimal performance, thus Almeida and Homography estimators were also tested against 700x393 sized RLOF optical flow decoder.
+In total, 192 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution). We picked such low resolution, because epipolar geometry based estimators could not handle that many motion vectors.
 
 We attempted to track translational movement of the camera as well, but the performance of libmv and multiview estimators was unsuitable for analysis. Even using prior knowlege of the video to normalise estimated translation vectors did not yield accurate results. Thus, we decided against testing that.
 
-(Figure: noisy translation)
+\begin{figure}[!ht]
+	\centering
+	\includegraphics[width=150pt]{docs/report/translation.jpg}
+	\caption{\centering Noisy translation estimation with libmv estimator.}
+\end{figure}
 
 \subsection{Runtime Performance}
 
-Figure below plots average performance of each estimator under different optical flow decoders. These results have been averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logaritmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In addition, performance metrics of these estimators under medium resolution RLOF were omitted, due to them not being exceptionally slow. With MPEG motion vectors the fastest estimator is Homography-RANSAC, while with low resolution optical flow it is non-RANSAC Almeida. However, at high resolutions Almeida-RANSAC takes the lead, due to it not sampling all motion vectors when performing computations. Epipolar geometry based estimators are not usable at all in realtime scenarios, while Almeida is able to process at least 30 frames per second in all cases but the last one. It is important to note that Almeida-RANSAC could be further tuned to produce better results at the cost of accuracy, but overall, best runtime performance is achieved using MPEG. Let us see now how accurate the results are.
+Figure below plots average performance of each estimator under different optical flow decoders. These results have been averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logaritmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In all cases, the fastest estimator is Homography-RANSAC. Almeida and Homography based estimators are able to process at least 30 frames per second, while epipolar geometry based estimators are not usable at all in realtime scenarios. Let us see now how accurate the results are.
 
 \begin{figure}[!ht]
 \begin{center}
@@ -447,11 +785,11 @@ Figure below plots average performance of each estimator under different optical
 			ylabel = {Processing time (ms per frame)},
 			ymode = log,
 			ymax = 100000,
-			ytick={1,10,16.6,33.3,100,1000,10000},
-			yticklabels={1,10,16.6,33.3,100,1000,10000},
-			symbolic x coords={av,rlof,farneback,hr_rlof},
-			xtick={av,farneback,rlof,hr_rlof},
-			xticklabels={MPEG,RLOF,Farneback,RLOF Mid Res},
+			ytick={1,10,16.7,33.3,100,1000,10000},
+			yticklabels={1,10,16.7,33.3,100,1000,10000},
+			symbolic x coords={av,rlof,farneback},
+			xtick={av,farneback,rlof},
+			xticklabels={MPEG,Farneback,RLOF},
 			width = \textwidth,
 			height = 0.5\textwidth,
 			legend cell align=left,
@@ -468,12 +806,12 @@ Figure below plots average performance of each estimator under different optical
 		\addplot[magenta, thick, dotted] table {
 			av 33.333
 			av 33.333
-			hr_rlof 33.333
+			farneback 33.333
 		};
 		\addplot[green, thick, dotted] table {
 			av 16.666
 			av 16.666
-			hr_rlof 16.666
+			farneback 16.666
 		};
 		\statplot{perf.csv}{Almeida-RANSAC}{teal}{*};
 		\statplot{perf.csv}{Almeida}{teal}{o, dashed};
@@ -491,7 +829,7 @@ Figure below plots average performance of each estimator under different optical
 
 \subsection{Accuracy}
 
-The next few graphs compare average accuracy of the estimator in different environments. The lower the average error the better. Comparing estimator accuracy with MPEG motion vectors (see figure 4.2) we can see that by far the most accurate estimator is our modified implementation of the method proposed by Almeida et al. Specifically, RANSAC version performs exceptionally well. Only in the fourth environment does it start to loose to the least-squares configuration. Almeida-RANSAC is able to successfully eliminate any outliers that non-RANSAC version uses for model fitting. Curiously, Almeida-RANSAC seems to perform marginally better in dynamic environments than static ones. This could be attributed to the video encoder being forced to transform background macroblocks more in line with the true motion in presence of other moving objects. The same anomaly can be found in multiview based estimator. Speaking of other estimators, RANSAC configurations appear to perform better than LMedS based ones, and 8 point fundamental matrix based algorithm struggles to perform accurate predictions, especially in dynamic environments. Overall, Almeida-RANSAC is the best performing estimator in this case.
+The next few graphs compare average accuracy of the estimator in different environments. The lower the average error the better. Comparing estimator accuracy with MPEG motion vectors (see figure 4.3) we can see that by far the most accurate estimator is our modified implementation of the method proposed by Almeida et al. Specifically, RANSAC version performs exceptionally well. Only in the fourth environment does it start to loose to the least-squares configuration. Almeida-RANSAC is able to successfully eliminate any outliers that non-RANSAC version uses for model fitting. Curiously, Almeida-RANSAC seems to perform marginally better in dynamic environments than static ones. This could be attributed to the video encoder being forced to transform background macroblocks more in line with the true motion in presence of other moving objects. The same anomaly can be found in multiview and 7 point libmv estimators. Speaking of other estimators, RANSAC configurations appear to perform better than LMedS based ones, and 8 point fundamental matrix based algorithm struggles to perform accurate predictions, especially in dynamic environments. Overall, Almeida-RANSAC is the best performing estimator in this case.
 
 \begin{figure}[!ht]
 \begin{center}
@@ -542,31 +880,43 @@ The next few graphs compare average accuracy of the estimator in different envir
 \caption{\centering Estimator performance comparison on encoded H.264 streams.}
 \end{figure}
 
-Figure 4.3 shows very similar relative performance when using OpenCV based optical flow decoders. However, the overall estimator accuracy is lower than on MPEG, which could be attributed to the overall lower quality flows being produced, which can possibly be explained by the implementation details of OpenCV's optical flow computation - it is computed on low resolution images, thus a lot of key information is likely being lost in the resizing process. If motion estimation accuracy is any indication for the quality of underlying optical flows, then we can assume that RLOF produces significantly more accurate results. However, with RLOF, Almeida-RANSAC and Almeida both appear to perform very similarly in dynamic environments, which diverges from the results produced with the previous 2 decoders.
+Figure 4.4 shows very similar relative performance when using OpenCV's base Gunnar-Farneback implementation. However, the overall accuracy seems to degrade from the third environment, and the results from all estimators seem to be very similar, which could indicate that this decoder was unable to produce accurate enough optical flows.
 
 \begin{figure}[!ht]
-\centering
-\begin{subfigure}{0.45\textwidth}
+\begin{center}
 \begin{tikzpicture}
 	\begin{axis}[
-			title = {Farneback},
 			xlabel = {Video clip},
 			ylabel = {Average error (degrees)},
+			ymax = 0.4,
 			symbolic x coords={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
 			xtick={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
 			xticklabels = {
-				1,1+D,2,2+D,3,3+D,4,4+D
+				\vidpic{vid1.jpg},
+				\vidpic{vid1dyn.jpg},
+				\vidpic{vid2.jpg},
+				\vidpic{vid2dyn.jpg},
+				\vidpic{vid3.jpg},
+				\vidpic{vid3dyn.jpg},
+				\vidpic{vid4.jpg},
+				\vidpic{vid4dyn.jpg},
 			},
 			every axis x label/.style={
 				at={(0.5,-0.2)},
 				anchor=center,
 			},
 			width = \textwidth,
-			height = \textwidth,
+			height = 0.5\textwidth,
 			legend cell align=left,
 			legend columns=2,
 			legend pos = north west
 		]
+		\legend{
+			Almeida-RANSAC,Almeida,
+			Homography-RANSAC,Homography-LMedS,
+			Multiview-RANSAC,Multiview-LMedS,
+			Libmv-7pt,Libmv-8pt
+		}
 		\statplot{err_farneback.csv}{Almeida-RANSAC}{teal}{*};
 		\statplot{err_farneback.csv}{Almeida}{teal}{o, dashed};
 		\statplot{err_farneback.csv}{Homography-RANSAC}{blue}{*};
@@ -577,25 +927,37 @@ Figure 4.3 shows very similar relative performance when using OpenCV based optic
 		\statplot{err_farneback.csv}{Libmv-8pt}{orange}{o, dashed};
 	\end{axis}
 \end{tikzpicture}
-\end{subfigure}
-\begin{subfigure}{0.45\textwidth}
+\end{center}
+\caption{\centering Estimator performance comparison using optical flows computed with Gunnar-Farneback algorithm.}
+\end{figure}
+
+Optical flows produced by RLOF appear to have consistent quality throughout the clips, and the results are relatively similar to the ones observed using MPEG motion vectors. In figure 4.5, we can notice that Libmv-8pt consistently performs the worst, which is consistent with results of processing Farneback optical flows.
+
+\begin{figure}
+\begin{center}
 \begin{tikzpicture}
 	\begin{axis}[
-			title = {RLOF},
 			xlabel = {Video clip},
 			ylabel = {Average error (degrees)},
+			ymax = 0.4,
 			symbolic x coords={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
-			ymax = 1,
 			xtick={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
 			xticklabels = {
-				1,1+D,2,2+D,3,3+D,4,4+D
+				\vidpic{vid1.jpg},
+				\vidpic{vid1dyn.jpg},
+				\vidpic{vid2.jpg},
+				\vidpic{vid2dyn.jpg},
+				\vidpic{vid3.jpg},
+				\vidpic{vid3dyn.jpg},
+				\vidpic{vid4.jpg},
+				\vidpic{vid4dyn.jpg},
 			},
 			every axis x label/.style={
 				at={(0.5,-0.2)},
 				anchor=center,
 			},
 			width = \textwidth,
-			height = \textwidth,
+			height = 0.5\textwidth,
 			legend cell align=left,
 			legend columns=2,
 			legend pos = north west
@@ -616,55 +978,11 @@ Figure 4.3 shows very similar relative performance when using OpenCV based optic
 		\statplot{err_rlof.csv}{Libmv-8pt}{orange}{o, dashed};
 	\end{axis}
 \end{tikzpicture}
-\end{subfigure}
-\caption{\centering Estimator performance comparison using low resolution dense optical flow fields.}
-\end{figure}
-
-Given RLOF's better performance compared to Farneback, we only tested the estimators with its higher resolution optical flows. As stated in the performance section, Multiview and Libmv based estimators are unable to produce results with such high resolutions in a reasonable time, thus they were omitted from this test. Analysing the results, we can see the trend of Almeida-RANSAC performing exceptionally better than non-RANSAC Almeida return. This could indicate that results from the low resolution optical flow fields may not be reliable. From a logical standpoint, any good optical flow generation configuration should yield more accurate results than H.264 encoding, which prioritises performance and compression efficiency over accuracy. 
-
-\begin{figure}[!ht]
-\begin{center}
-\begin{tikzpicture}
-	\begin{axis}[
-			xlabel = {Video clip},
-			ylabel = {Average error (degrees)},
-			symbolic x coords={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
-			xtick={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
-			xticklabels = {
-				\vidpic{vid1.jpg},
-				\vidpic{vid1dyn.jpg},
-				\vidpic{vid2.jpg},
-				\vidpic{vid2dyn.jpg},
-				\vidpic{vid3.jpg},
-				\vidpic{vid3dyn.jpg},
-				\vidpic{vid4.jpg},
-				\vidpic{vid4dyn.jpg},
-			},
-			every axis x label/.style={
-				at={(0.5,-0.3)},
-				anchor=center,
-			},
-			width = \textwidth,
-			height = 0.4\textwidth,
-			legend cell align=left,
-			legend columns=2,
-			legend pos = north west
-		]
-		\legend{
-			Almeida-RANSAC,Almeida,
-			Homography-RANSAC,Homography-LMedS,
-		}
-		\statplot{err_hr_rlof.csv}{Almeida-RANSAC}{teal}{*};
-		\statplot{err_hr_rlof.csv}{Almeida}{teal}{o, dashed};
-		\statplot{err_hr_rlof.csv}{Homography-RANSAC}{blue}{*};
-		\statplot{err_hr_rlof.csv}{Homography-LMedS}{blue}{o, dashed};
-	\end{axis}
-\end{tikzpicture}
 \end{center}
-\caption{\centering Estimator performance comparison on mid-resolution RLOF.}
+\caption{\centering Estimator performance comparison using optical flows computed with RLOF.}
 \end{figure}
 
-Figure 4.4 compares the performance of Almeida-RANSAC under different optical flow generation methods. In there we can notice how well MPEG holds up in higher contrast scenarios - Almeida-RANSAC performs nearly identically in the first 3 environments under MPEG compression to medium resolution RLOF. Only the 4th scene leads to divergence in accuracy, however, real-world videos rarely contain this little detail, so it remains to be seen how well the estimator performs there.
+Given Almeida-RANSAC is the most accurate estimator, figure 4.6 compares the performance of it under different optical flow generation methods. In there we can notice how well MPEG holds up in higher contrast scenarios - Almeida-RANSAC performs nearly identically in the first 3 environments under MPEG compression to RLOF. Only the 4th scene leads to divergence in accuracy, however, real-world videos rarely contain this little detail, so it remains to be seen how well the estimator performs there. Farneback decoder appears to enable more accurate estimation in the second environment, however, its optical flow appears to diverge from reality in lower complexity environments.
 
 \begin{figure}[!ht]
 \begin{center}
@@ -696,12 +1014,10 @@ Figure 4.4 compares the performance of Almeida-RANSAC under different optical fl
 		]
 		\legend{
 			MPEG,
-			Hid Res RLOF,
 			RLOF,
 			Farneback
 		}
 		\statplot{err_av.csv}{Almeida-RANSAC}{teal}{*};
-		\statplot{err_hr_rlof.csv}{Almeida-RANSAC}{blue}{*};
 		\statplot{err_rlof.csv}{Almeida-RANSAC}{red}{*};
 		\statplot{err_farneback.csv}{Almeida-RANSAC}{orange}{*};
 	\end{axis}
@@ -710,21 +1026,30 @@ Figure 4.4 compares the performance of Almeida-RANSAC under different optical fl
 \caption{\centering Almeida-RANSAC estimator compared with optical flow calculation methods.}
 \end{figure}
 
-\pagebreak
-
 \subsection{Real-world data}
 
-The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator is able to accurately track camera motion and panorama view gets created.
+The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator is able to accurately track camera motion and panorama view gets created (see figure 3.11).
 
-(Figure: panorama view)
+\newpage
 
 \section{OFPS}
 
 Optical Flow Processing Stack can be evaluated by its modularity. The core library consists of a thousand lines of code, which is reused by the plugin crates. Each plugin averages around 300 lines of code and only concerns itself with providing functionality with minimal boilerplate code.
 
-(Figure: code size)
+\begin{figure}[!ht]
+	\begin{center}
+		\begin{tabular}{| c | c | c | c | c | c | c | c |} 
+			\hline
+			. & ofps & mvec-av & mvec-cv & almeida-estimator & libmv-estimator & multiview-estimator & homography-estimator \\ [0.5ex] 
+			\hline
+			LoC & 1052 & 410 & 282 & 345 & 323 & 300 & 221 \\ 
+			\hline
+		\end{tabular}
+\end{center}
+	\caption{\centering Code size comparison}
+\end{figure}
 
-From the user's perspective, motion estimation can be easily performed with the following code:
+From the user's perspective, the API is concise and the following code can be used to perform motion estimation:
 
 \begin{minted}[numbersep=5pt,frame=lines,framesep=2mm,linenos]{rust}
 let store = PluginStore::new();

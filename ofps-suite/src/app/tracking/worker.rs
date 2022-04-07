@@ -243,7 +243,7 @@ impl Drop for DecoderJob {
         self.results.take();
 
         if let Some(handle) = self.handle.take() {
-            handle.join().unwrap();
+            handle.join().ok();
         }
     }
 }

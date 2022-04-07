@@ -55,7 +55,9 @@ impl Detector for BlockMotionDetection {
 
         // Add all the motion to the field densifier.
         let mut mf = MotionFieldDensifier::new(block_dim, block_dim);
-        motion.for_each(|(pos, motion)| mf.add_vector(pos, motion));
+        motion.for_each(|(pos, motion)| {
+            mf.add_vector(pos, motion);
+        });
         let mf = MotionField::from(mf);
 
         let mut map = vec![vec![false; block_dim]; block_dim];

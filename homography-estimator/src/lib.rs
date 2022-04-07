@@ -34,7 +34,10 @@ impl Properties for HomographyEstimator {
                 "Max error",
                 PropertyMut::float(&mut self.max_error, 0.00001, 0.1),
             ),
-            ("Max iters", PropertyMut::usize(&mut self.max_iters, 1, 500)),
+            (
+                "Max iters",
+                PropertyMut::usize(&mut self.max_iters, 1, 5000),
+            ),
             ("Use ransac", PropertyMut::Bool(&mut self.use_ransac)),
         ]
     }
@@ -64,9 +67,9 @@ impl HomographyEstimator {
 impl Default for HomographyEstimator {
     fn default() -> Self {
         Self {
-            desired_confidence: 0.999,
-            max_error: 0.0001,
-            max_iters: 200,
+            desired_confidence: 0.997,
+            max_error: 0.001,
+            max_iters: 2000,
             use_ransac: true,
         }
     }
@@ -94,7 +97,7 @@ impl HomographyEstimator {
         //println!("{:?}", cam_matrix);
 
         let cam_matrix = cam_matrix.transpose();
-        //let cam_matrix = na::Matrix3::from_iterator(cam_matrix.into_iter().map(|v| *v as f64));
+        let cam_matrix = na::Matrix3::from_iterator(cam_matrix.into_iter().map(|v| *v as f64));
 
         let cam_matrix = Mat::from_slice_2d(&[
             cam_matrix.column(0).as_slice(),
@@ -156,6 +159,10 @@ impl Estimator for HomographyEstimator {
         let r = na::UnitQuaternion::from_matrix(&r).inverse();
         let (x, z, y) = r.euler_angles();
         let r = na::UnitQuaternion::from_euler_angles(x * -1.0, y * -1.0, z);
+
+        /*let r = na::UnitQuaternion::from_quaternion(na::Quaternion::new(
+            r.coords.w, r.coords.x, r.coords.z * -1.0, r.coords.y,
+        ));*/
 
         Ok((r, Default::default()))
     }

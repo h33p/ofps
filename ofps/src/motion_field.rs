@@ -175,12 +175,19 @@ impl MotionFieldDensifier {
 
     /// Add a motion vector with custom weight.
     ///
+    /// Returns cell of insertion.
+    ///
     /// # Arguments
     ///
     /// * `pos` - starting position of the motion vector, in 0-1 range.
     /// * `motion` - motion of the vector.
     /// * `weight` - weight of the motion vector.
-    pub fn add_vector_weighted(&mut self, pos: Point2<f32>, motion: Vector2<f32>, weight: f32) {
+    pub fn add_vector_weighted(
+        &mut self,
+        pos: Point2<f32>,
+        motion: Vector2<f32>,
+        weight: f32,
+    ) -> (usize, usize) {
         let pos = clamp(pos, Point2::new(0f32, 0f32), Point2::new(1f32, 1f32));
         let (w, h) = self.mf.dim();
         let (x, y) = (
@@ -188,16 +195,19 @@ impl MotionFieldDensifier {
             (pos.y * (h - 1) as f32).round() as usize,
         );
         self.add_vector_pos(x, y, motion, weight);
+        (x, y)
     }
 
     /// Add a motion vector to the field.
+    ///
+    /// Returns cell of insertion.
     ///
     /// # Arguments
     ///
     /// * `pos` - starting position of the motion vector, in 0-1 range.
     /// * `motion` - motion of the vector.
-    pub fn add_vector(&mut self, pos: Point2<f32>, motion: Vector2<f32>) {
-        self.add_vector_weighted(pos, motion, 1.0);
+    pub fn add_vector(&mut self, pos: Point2<f32>, motion: Vector2<f32>) -> (usize, usize) {
+        self.add_vector_weighted(pos, motion, 1.0)
     }
 
     /// Calculate empty cells from non-empty neghbors.

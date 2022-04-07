@@ -391,6 +391,8 @@ impl MotionTrackingApp {
         self.draw_ground_truth = draw_ground_truth;
         self.draw_perf_stats = draw_perf_stats;
 
+        self.estimator_uis.clear();
+
         for (cfg, loaded, settings) in estimators {
             let mut ui = CreateEstimatorUiState::default();
             ui.config = cfg;

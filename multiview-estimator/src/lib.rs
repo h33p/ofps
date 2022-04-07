@@ -209,7 +209,7 @@ impl Estimator for MultiviewEstimator {
         // the rest of the codebase.
         let r = na::UnitQuaternion::from_matrix(&r).inverse();
         let (x, z, y) = r.euler_angles();
-        let r = na::UnitQuaternion::from_euler_angles(x, y, z);
+        let r = na::UnitQuaternion::from_euler_angles(x * -1.0, y * -1.0, z);
 
         // Check if rotation is over 90 degrees. Generally, this should not be possible, but is
         // caused by opencv acting weird.

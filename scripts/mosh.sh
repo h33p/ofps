@@ -8,7 +8,7 @@ RES=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of
 
 ffmpeg \
 	-i $MOSH_VIDEO -i $MOSH_FRAME -filter_complex \
-	"[1]crop=3360:1280:0:0,scale=3360:1280,setsar=1:1[i0];[i0][0:v:0]concat=n=2:v=1[outv]" \
+	"[1]crop=1920:1080:0:0,scale=1920:1080,setsar=1:1[i0];[i0][0:v:0]concat=n=2:v=1[outv]" \
 	-map "[outv]" -c:v libx264 -bf 0 -g 999999 out0.avi
 
 # Just see that it would work on accelerator

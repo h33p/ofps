@@ -26,7 +26,8 @@ ofps::define_descriptor!(cv, Decoder, |args| CvDecoder::try_new(
 pub struct CvDecoder {
     capture: VideoCapture,
     frame: Mat,
-    gray_tmp: Mat,
+    old_frame: Mat,
+    frame_tmp: Mat,
     gray: Mat,
     old_gray: Mat,
     sobel: Mat,
@@ -35,6 +36,8 @@ pub struct CvDecoder {
     flow: Mat,
     aspect_ratio_scale: (usize, usize),
     max_mfield_size: (usize, usize),
+    use_rlof: bool,
+    process_fullres: bool,
 }
 
 impl Properties for CvDecoder {
@@ -42,11 +45,16 @@ impl Properties for CvDecoder {
         vec![
             (
                 "Width",
-                PropertyMut::usize(&mut self.max_mfield_size.0, 1, 200),
+                PropertyMut::usize(&mut self.max_mfield_size.0, 1, 2000),
             ),
             (
                 "Height",
-                PropertyMut::usize(&mut self.max_mfield_size.1, 1, 200),
+                PropertyMut::usize(&mut self.max_mfield_size.1, 1, 2000),
+            ),
+            ("RLOF", PropertyMut::bool(&mut self.use_rlof)),
+            (
+                "Process Fullres",
+                PropertyMut::bool(&mut self.process_fullres),
             ),
         ]
     }
@@ -63,8 +71,9 @@ impl CvDecoder {
         Ok(Self {
             capture,
             frame: Default::default(),
+            old_frame: Default::default(),
+            frame_tmp: Default::default(),
             gray: Default::default(),
-            gray_tmp: Default::default(),
             old_gray: Default::default(),
             sobel: Default::default(),
             mask: Default::default(),
@@ -72,6 +81,8 @@ impl CvDecoder {
             flow: Default::default(),
             aspect_ratio_scale,
             max_mfield_size,
+            use_rlof: false,
+            process_fullres: true,
         })
     }
 }
@@ -85,19 +96,30 @@ impl Decoder for CvDecoder {
     ) -> Result<bool> {
         let mut cnt = 0;
 
+        let mut dxy = (0, 0);
+
         while cnt <= skip {
-            if self.capture.read(&mut self.frame)? {
+            if self.capture.read(&mut self.frame_tmp)? {
                 cnt += 1;
+                core::mem::swap(&mut self.old_frame, &mut self.frame);
                 core::mem::swap(&mut self.old_gray, &mut self.gray);
-                imgproc::cvt_color(&self.frame, &mut self.gray_tmp, imgproc::COLOR_BGR2GRAY, 0)?;
 
                 let (dx, dy) = {
-                    let (ax, ay) = self.get_aspect().unwrap();
+                    let (ax, ay) = (
+                        self.frame_tmp.cols() as usize,
+                        self.frame_tmp.rows() as usize,
+                    );
                     let ratio = (
                         ax * self.aspect_ratio_scale.0,
                         ay * self.aspect_ratio_scale.1,
                     );
                     let (w, h) = self.max_mfield_size;
+
+                    let (w, h) = (
+                        std::cmp::min(w, self.frame_tmp.cols() as _),
+                        std::cmp::min(h, self.frame_tmp.rows() as _),
+                    );
+
                     let width_based = (w, w * ratio.1 / ratio.0);
                     let height_based = (h * ratio.0 / ratio.1, h);
                     if width_based.0 < height_based.0 {
@@ -107,14 +129,22 @@ impl Decoder for CvDecoder {
                     }
                 };
 
-                imgproc::resize(
-                    &self.gray_tmp,
-                    &mut self.gray,
-                    Size::new(dx as _, dy as _),
-                    0.0,
-                    0.0,
-                    imgproc::INTER_LINEAR,
-                )?;
+                dxy = (dx, dy);
+
+                if self.process_fullres {
+                    std::mem::swap(&mut self.frame_tmp, &mut self.frame);
+                } else {
+                    imgproc::resize(
+                        &self.frame_tmp,
+                        &mut self.frame,
+                        Size::new(dx as _, dy as _),
+                        0.0,
+                        0.0,
+                        imgproc::INTER_LINEAR,
+                    )?;
+                }
+
+                imgproc::cvt_color(&self.frame, &mut self.gray, imgproc::COLOR_BGR2GRAY, 0)?;
             } else {
                 return Err(anyhow!("Failed to grab frame"));
             }
@@ -136,80 +166,137 @@ impl Decoder for CvDecoder {
             return Ok(false);
         }
 
-        opencv::video::calc_optical_flow_farneback(
-            &self.old_gray,
-            &self.gray,
-            &mut self.flow,
-            0.5,
-            5,
-            11,
-            3,
-            5,
-            1.1,
-            0,
-        )?;
-
         let winsize = 5;
 
-        // Calculate sobel mask
-        opencv::imgproc::sobel(
-            &self.gray,
-            &mut self.sobel,
-            opencv::core::CV_32F,
-            1,
-            1,
-            winsize,
-            1.0,
-            0.0,
-            opencv::core::BORDER_DEFAULT,
-        )?;
+        let flags = if self.flow.cols() > 0 && self.flow.rows() > 0 {
+            opencv::video::OPTFLOW_USE_INITIAL_FLOW
+        } else {
+            0
+        };
 
-        opencv::imgproc::threshold(
-            &self.sobel,
-            &mut self.thresh,
-            40.0,
-            255.0,
-            opencv::imgproc::THRESH_BINARY,
-        )?;
+        if self.use_rlof {
+            opencv::optflow::calc_optical_flow_dense_rlof(
+                &self.old_frame,
+                &self.frame,
+                &mut self.flow,
+                opencv::optflow::RLOFOpticalFlowParameter::create()?,
+                0.0,
+                opencv::core::Size::new(8, 8),
+                opencv::optflow::InterpolationType::INTERP_EPIC,
+                128,
+                0.05,
+                100.0,
+                15,
+                100,
+                true,
+                500.0,
+                1.5,
+                false,
+            )?;
+        } else {
+            opencv::video::calc_optical_flow_farneback(
+                &self.old_gray,
+                &self.gray,
+                &mut self.flow,
+                0.5,
+                5,
+                winsize + 8,
+                3,
+                7,
+                1.5,
+                flags,
+            )?;
+        }
 
-        opencv::imgproc::dilate(
-            &self.thresh,
-            &mut self.mask,
-            &opencv::imgproc::get_structuring_element(
-                opencv::imgproc::MORPH_ELLIPSE,
-                opencv::core::Size::new(winsize * 2 + 1, winsize * 2 + 1),
-                opencv::core::Point::new(winsize, winsize),
-            )?,
-            opencv::core::Point::new(-1, -1),
-            1,
-            opencv::core::BORDER_DEFAULT,
-            opencv::imgproc::morphology_default_border_value()?,
-        )?;
+        // Calculate sobel mask when using Gunnar-Farneback
+        if !self.use_rlof {
+            opencv::imgproc::sobel(
+                &self.gray,
+                &mut self.sobel,
+                opencv::core::CV_32F,
+                1,
+                1,
+                5,
+                1.0,
+                0.0,
+                opencv::core::BORDER_DEFAULT,
+            )?;
+
+            opencv::imgproc::threshold(
+                &self.sobel,
+                &mut self.thresh,
+                20.0,
+                255.0,
+                opencv::imgproc::THRESH_BINARY,
+            )?;
+
+            opencv::imgproc::dilate(
+                &self.thresh,
+                &mut self.mask,
+                &opencv::imgproc::get_structuring_element(
+                    opencv::imgproc::MORPH_ELLIPSE,
+                    opencv::core::Size::new(winsize * 2 + 1, winsize * 2 + 1),
+                    opencv::core::Point::new(winsize, winsize),
+                )?,
+                opencv::core::Point::new(-1, -1),
+                1,
+                opencv::core::BORDER_DEFAULT,
+                opencv::imgproc::morphology_default_border_value()?,
+            )?;
+        }
 
         let frame_norm = na::Vector2::new(
             1f32 / self.gray.cols() as f32,
             1f32 / self.gray.rows() as f32,
         );
 
+        let mut points = std::collections::BTreeSet::new();
+
+        let mut downsample = if self.process_fullres {
+            MotionFieldDensifier::new(dxy.0, dxy.1)
+        } else {
+            MotionFieldDensifier::new(0, 0)
+        };
+
         for y in 0..self.gray.rows() {
             for x in 0..self.gray.cols() {
-                let mask: &f32 = self.mask.at_2d(y, x).unwrap();
+                if !self.use_rlof {
+                    let mask: &f32 = self.mask.at_2d(y, x).unwrap();
 
-                if *mask < 0.1 {
-                    continue;
+                    if *mask < 0.1 {
+                        continue;
+                    }
                 }
 
                 let dir: &Point2f = self.flow.at_2d(y, x)?;
 
-                let pos = na::Vector2::new(x as f32, y as f32)
+                let pos = na::Vector2::new(x as f32 + 0.5, y as f32 + 0.5)
                     .component_mul(&frame_norm)
                     .into();
 
                 let motion =
                     na::Vector2::new(dir.x as f32, dir.y as f32).component_mul(&frame_norm);
 
-                mf.push((pos, motion));
+                if self.process_fullres {
+                    points.insert(downsample.add_vector(pos, motion));
+                } else {
+                    mf.push((pos, motion));
+                }
             }
+        }
+
+        let downsampled = MotionField::from(downsample);
+
+        let frame_norm = na::Vector2::new(1f32 / dxy.0 as f32, 1f32 / dxy.1 as f32);
+
+        for (x, y) in points {
+            let motion = downsampled.get_motion(x, y);
+
+            let pos = na::Vector2::new(x as f32 + 0.5, y as f32 + 0.5)
+                .component_mul(&frame_norm)
+                .into();
+
+            mf.push((pos, motion));
         }
 
         Ok(true)
@@ -220,6 +307,6 @@ impl Decoder for CvDecoder {
     }
 
     fn get_aspect(&self) -> Option<(usize, usize)> {
-        Some((self.frame.cols() as _, self.frame.rows() as _))
+        Some((self.gray.cols() as _, self.gray.rows() as _))
     }
 }
