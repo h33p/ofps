@@ -132,11 +132,23 @@ impl EstimatorState {
                 .enumerate()
                 .map(|(i, s)| (i, self.poses[s.0].1))
                 .fold(None, |candidate, (frame, rot)| {
-                    let dist = self
+                    let mut dists = self
                         .layered_frames
                         .iter()
                         .map(|s| self.poses[s.0].1.angle_to(&rot))
-                        .sum::<f32>();
+                        .collect::<Vec<_>>();
+
+                    dists.sort_by(|a, b| {
+                        if a > b {
+                            std::cmp::Ordering::Greater
+                        } else if a < b {
+                            std::cmp::Ordering::Less
+                        } else {
+                            std::cmp::Ordering::Equal
+                        }
+                    });
+
+                    let dist = dists.into_iter().take(5).sum::<f32>();
 
                     if let Some((frame, cur_dist)) = candidate {
                         if dist >= cur_dist {
