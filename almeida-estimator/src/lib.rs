@@ -30,15 +30,15 @@ pub trait MotionModel {
 impl MotionModel for StandardCamera {
     fn roll(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
         // We use different camera axis compared to what nalgebra considers as RPY
-        self.delta(coords, na::Matrix4::from_euler_angles(0.0, 0.0, -eps))
+        self.delta(coords, na::Matrix4::from_euler_angles(0.0, eps, 0.0))
     }
 
     fn pitch(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
-        self.delta(coords, na::Matrix4::from_euler_angles(-eps, 0.0, 0.0))
+        self.delta(coords, na::Matrix4::from_euler_angles(eps, 0.0, 0.0))
     }
 
     fn yaw(&self, coords: na::Point2<f32>, eps: f32) -> na::Vector2<f32> {
-        self.delta(coords, na::Matrix4::from_euler_angles(0.0, eps, 0.0))
+        self.delta(coords, na::Matrix4::from_euler_angles(0.0, 0.0, -eps))
     }
 
     fn point_angle(&self, p: na::Point2<f32>) -> na::Vector2<f32> {
@@ -104,77 +104,23 @@ impl Estimator for AlmeidaEstimator {
         camera: &StandardCamera,
         _move_magnitude: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
-        let mut rotation = na::UnitQuaternion::identity();
-
-        let mut inliers = if self.use_ransac {
-            vec![]
+        let rot = if self.use_ransac {
+            solve_ypr_ransac(
+                motion_vectors,
+                camera,
+                self.num_iters,
+                self.inlier_angle,
+                self.ransac_samples,
+            )
         } else {
-            motion_vectors.iter().copied().collect()
+            solve_ypr_given(motion_vectors, camera)
         };
 
-        let limit = (15.0 / ALPHA).ceil() as usize;
-
-        for i in 0..limit {
-            let model = if i == 0 && self.use_ransac {
-                let (model, new_inliers) = solve_ypr_ransac(
-                    motion_vectors,
-                    camera,
-                    self.num_iters,
-                    EPS,
-                    self.inlier_angle,
-                    self.ransac_samples,
-                );
-                inliers = new_inliers;
-                model
-            } else {
-                solve_ypr(camera, &inliers, EPS)
-            };
-
-            let epsmax = model.x.abs().max(model.y.abs()).max(model.z.abs());
-
-            if epsmax <= f32::EPSILON {
-                break;
-            }
-
-            let last_iter = i == limit - 1 || epsmax <= 1.0;
-
-            // If the last iteration, step fully.
-            let alpha = if last_iter { 1.0 } else { ALPHA };
-
-            let model = model * EPS * alpha;
-
-            // Apply rotation in YRP order, as it is more correct.
-
-            let roll = na::UnitQuaternion::from_euler_angles(-model.y, 0.0, 0.0);
-            let pitch = na::UnitQuaternion::from_euler_angles(0.0, model.z, 0.0);
-            let yaw = na::UnitQuaternion::from_euler_angles(0.0, 0.0, -model.x);
-
-            let rot = pitch * roll * yaw;
-
-            let roll = na::UnitQuaternion::from_euler_angles(-model.y, 0.0, 0.0);
-            let pitch = na::UnitQuaternion::from_euler_angles(0.0, model.x, 0.0);
-            let yaw = na::UnitQuaternion::from_euler_angles(0.0, 0.0, -model.z);
-
-            let rotm = pitch * roll * yaw;
-
-            for (pos, motion) in &mut inliers {
-                let delta = camera.delta(*pos, rotm.to_homogeneous());
-                *pos += delta;
-                *motion -= delta;
-            }
-
-            rotation *= rot;
-
-            if last_iter {
-                break;
-            }
-        }
-
-        Ok((rotation, na::Vector3::default()))
+        Ok((rot, na::Vector3::default()))
     }
 }
 
-fn solve_ypr_given(motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])]) -> na::Vector3<f32> {
+fn solve_ypr_given(input: &[MotionEntry], camera: &StandardCamera) -> na::UnitQuaternion<f32> {
     let dot = |a: usize, b: usize| move |vecs: &[na::Vector2<f32>]| vecs[a].dot(&vecs[b]);
 
     fn dot_map<T: Fn(&[na::Vector2<f32>]) -> f32>(
@@ -183,106 +129,113 @@ fn solve_ypr_given(motion: &[(na::Point2<f32>, [na::Vector2<f32>; 4])]) -> na::V
         move |dot| motion.iter().map(|(_, v)| dot(v)).sum::<f32>()
     }
 
-    let a = na::Matrix3::from_iterator(
-        [
-            dot(1, 1),
-            dot(1, 2),
-            dot(1, 3),
-            dot(2, 1),
-            dot(2, 2),
-            dot(2, 3),
-            dot(3, 1),
-            dot(3, 2),
-            dot(3, 3),
-        ]
-        .iter()
-        .map(dot_map(&motion)),
-    );
+    let limit = (15.0 / ALPHA).ceil() as usize;
 
-    let b = na::Vector3::from_iterator(
-        [dot(1, 0), dot(2, 0), dot(3, 0)]
+    let mut rotation = na::UnitQuaternion::identity();
+
+    // Iterative optimisation loop.
+    for i in 0..limit {
+        let alpha = if i == limit - 1 { 1.0 } else { ALPHA };
+
+        let rotm = rotation.to_homogeneous();
+
+        let motion = input
+            .iter()
+            .copied()
+            .map(|(pos, motion)| {
+                let delta = camera.delta(pos, rotm);
+                (
+                    pos + delta,
+                    [
+                        motion - delta,
+                        camera.roll(pos, EPS),
+                        camera.pitch(pos, EPS),
+                        camera.yaw(pos, EPS),
+                    ],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let a = na::Matrix3::from_iterator(
+            [
+                dot(1, 1),
+                dot(1, 2),
+                dot(1, 3),
+                dot(2, 1),
+                dot(2, 2),
+                dot(2, 3),
+                dot(3, 1),
+                dot(3, 2),
+                dot(3, 3),
+            ]
             .iter()
             .map(dot_map(&motion)),
-    );
+        );
 
-    let decomp = a.lu();
+        let b = na::Vector3::from_iterator(
+            [dot(1, 0), dot(2, 0), dot(3, 0)]
+                .iter()
+                .map(dot_map(&motion)),
+        );
 
-    decomp.solve(&b).unwrap_or_default()
-}
+        let decomp = a.lu();
 
-fn solve_ypr(camera: &impl MotionModel, field: &[MotionEntry], eps: f32) -> na::Vector3<f32> {
-    let motion = field
-        .iter()
-        .copied()
-        .map(|(pos, motion)| {
-            (
-                pos,
-                [
-                    motion,
-                    camera.yaw(pos, eps),
-                    camera.pitch(pos, eps),
-                    camera.roll(pos, eps),
-                ],
-            )
-        })
-        .collect::<Vec<_>>();
+        let model = decomp.solve(&b).unwrap_or_default();
 
-    solve_ypr_given(&motion)
+        let model = model * EPS * alpha;
+
+        // Apply rotation in YRP order, as it is more correct.
+
+        let roll = na::UnitQuaternion::from_euler_angles(0.0, model.x, 0.0);
+        let pitch = na::UnitQuaternion::from_euler_angles(model.y, 0.0, 0.0);
+        let yaw = na::UnitQuaternion::from_euler_angles(0.0, 0.0, -model.z);
+
+        let rot = pitch * roll * yaw;
+
+        rotation *= rot;
+    }
+
+    // We estimated how points rotate, not how the camera rotates - take inverse.
+    rotation.inverse()
 }
 
 fn solve_ypr_ransac(
     field: &[MotionEntry],
-    camera: &impl MotionModel,
+    camera: &StandardCamera,
     num_iters: usize,
-    eps: f32,
     target_delta: f32,
     num_samples: usize,
-) -> (na::Vector3<f32>, Vec<MotionEntry>) {
-    let motion = field
-        .iter()
-        .copied()
-        .map(|(pos, motion)| {
-            (
-                pos,
-                [
-                    motion,
-                    camera.yaw(pos, eps),
-                    camera.pitch(pos, eps),
-                    camera.roll(pos, eps),
-                ],
-            )
-        })
-        .collect::<Vec<_>>();
-
+) -> na::UnitQuaternion<f32> {
     let mut best_inliers = vec![];
     let target_delta = target_delta.to_radians();
 
     let rng = &mut rand::thread_rng();
 
-    // Even with 60% of outliers this would not reach this limit...
     for _ in 0..num_iters {
-        let samples = motion.choose_multiple(rng, 3).copied().collect::<Vec<_>>();
+        let samples = field.choose_multiple(rng, 4).copied().collect::<Vec<_>>();
 
-        let fit = solve_ypr_given(samples.as_slice());
+        let fit = solve_ypr_given(&samples, camera);
 
-        let motion = motion
+        let motion = field
             .choose_multiple(rng, num_samples)
             .copied()
             .collect::<Vec<_>>();
 
+        let mat = fit.inverse().to_homogeneous();
+
         let inliers = motion
             .iter()
-            .map(|(pos, vec)| (sample_ypr_model(fit, *pos, vec), vec[0], pos, vec))
-            .filter(|(sample, actual, pos, _)| {
-                let pos = *pos + *actual;
-                let angle = camera.point_angle(pos);
-                let cosang = na::matrix![angle.x.cos(); angle.y.cos()];
-                (*actual - *sample)
-                    .component_mul(&cosang)
-                    .magnitude_squared()
-                    <= target_delta * target_delta
+            .copied()
+            .map(|(pos, vec)| {
+                let delta = camera.delta(pos, mat);
+                ((pos, vec), (pos + delta, vec - delta))
             })
-            .map(|(_, _, pos, vec)| (*pos, *vec))
+            .filter(|(_, (sample, vec))| {
+                let angle = camera.point_angle(*sample);
+                let cosang = na::matrix![angle.x.cos(); angle.y.cos()];
+                vec.component_mul(&cosang).magnitude_squared() <= target_delta * target_delta
+            })
+            .map(|(a, _)| a)
             .collect::<Vec<_>>();
 
         if inliers.len() > best_inliers.len() {
@@ -290,30 +243,7 @@ fn solve_ypr_ransac(
         }
     }
 
-    (
-        solve_ypr_given(best_inliers.as_slice()),
-        best_inliers
-            .into_iter()
-            .map(|(a, [b, _, _, _])| (a, b))
-            .collect(),
-    )
-}
-
-/*fn get_model_samples(
-    pos: na::Point2<f32>,
-    camera: &impl MotionModel,
-    eps: f32,
-) -> na::Vector3<f32> {
-    na::Vector3::new(camera.yaw(pos, eps), camera.pitch(pos, eps), camera.roll(pos, eps))
-}*/
-
-fn sample_ypr_model(
-    model: na::Vector3<f32>,
-    pos: na::Point2<f32>,
-    vecs: &[na::Vector2<f32>; 4],
-) -> na::Vector2<f32> {
-    //get_model_samples(pos, camera, eps).component_mul(&model);
-    vecs[1] * model.x + vecs[2] * model.y + vecs[3] * model.z
+    solve_ypr_given(&best_inliers, camera)
 }
 
 #[cfg(test)]
@@ -327,8 +257,8 @@ pub mod tests {
     ) -> Vec<na::Point3<f32>> {
         let mut new_points = vec![];
 
-        for x in 1..grid_cnt_x {
-            for y in 1..grid_cnt_y {
+        for x in 0..grid_cnt_x {
+            for y in 0..grid_cnt_y {
                 let x = x as f32 / grid_cnt_x as f32;
                 let y = y as f32 / grid_cnt_y as f32;
                 new_points.push(na::Point2::new(x, y));
@@ -363,9 +293,10 @@ pub mod tests {
         p1: impl IntoIterator<Item = na::Point2<f32>>,
         p2: impl IntoIterator<Item = na::Point2<f32>>,
     ) -> Vec<MotionEntry> {
+        let mid = na::Point2::new(0.5, 0.5);
         p1.into_iter()
             .zip(p2.into_iter())
-            .filter(|(p1, p2)| p1.coords.magnitude() <= 0.71 && p2.coords.magnitude() <= 0.71)
+            .filter(|(p1, p2)| (p1 - mid).magnitude() <= 0.71 || (p2 - mid).magnitude() <= 0.71)
             .map(|(p1, p2)| (p1, p2 - p1))
             .collect()
     }
@@ -373,7 +304,7 @@ pub mod tests {
     fn test_rot(mut estimator: AlmeidaEstimator) {
         let camera = StandardCamera::new(90.0, 90.0);
 
-        let mut grid = get_grid(50, 50, &camera);
+        let grid = get_grid(50, 50, &camera);
 
         for rot in [0.01f32, 0.1, 1.0, 10.0] {
             let angles = [
@@ -403,11 +334,9 @@ pub mod tests {
 
                 let field = calc_field(p1, p2);
 
-                let (r, tr) = estimator.estimate(&field, &camera, None).unwrap();
+                let (r, _) = estimator.estimate(&field, &camera, None).unwrap();
 
                 let delta = q.angle_to(&r).to_degrees();
-
-                println!("E: {}", delta / rot);
 
                 assert!(
                     delta < 0.1 * rot,
@@ -419,13 +348,12 @@ pub mod tests {
                 );
             }
         }
-
-        panic!()
     }
 
     #[test]
     fn test_rotation_default() {
-        let estimator = AlmeidaEstimator::default();
+        let mut estimator = AlmeidaEstimator::default();
+        estimator.use_ransac = false;
         test_rot(estimator);
     }
 

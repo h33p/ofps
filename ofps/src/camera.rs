@@ -72,7 +72,7 @@ impl StandardCamera {
     /// * `view` - camera view matrix.
     pub fn project(&self, world: na::Point3<f32>, view: na::Matrix4<f32>) -> na::Point2<f32> {
         // Transform the point back into 2D
-        let mut screen = (self.proj.as_matrix() * view).transform_point(&world);
+        let mut screen = self.proj.project_point(&view.transform_point(&world));
 
         // Convert back from homogeneus coordinates
         let screen = na::Point2::new(screen.x / screen.z, screen.y / screen.z);
@@ -106,14 +106,28 @@ impl StandardCamera {
     /// * `coords` - screen space coordinates of the point to reproject.
     /// * `rotation` - 3D rotation matrix of the point.
     pub fn rotate(&self, coords: na::Point2<f32>, rotation: na::Matrix4<f32>) -> na::Point2<f32> {
-        let inv_view = na::Matrix4::identity();
+        // Z up, Y forward.
+        let view = na::matrix![
+            -1.0, 0.0, 0.0, 0.0;
+             0.0, 0.0, 1.0, 0.0;
+             0.0, 1.0, 0.0, 0.0;
+             0.0, 0.0, 0.0, 1.0;
+        ];
 
-        let world = self.unproject(coords, inv_view);
+        /*let view = na::Matrix4::look_at_lh(
+            &na::Vector3::new(0.0, 0.0, 0.0).into(),
+            &na::Vector3::new(0.0, 1.0, 0.0).into(),
+            &na::Vector3::new(0.0, 0.0, 1.0),
+        );*/
+
+        //println!("{:?}", view);
+
+        let world = self.unproject(coords, view.transpose());
 
         // Rotate the point as if it was on a sphere
         let world = rotation.transform_point(&world);
 
-        self.project_identity(world)
+        self.project(world, view)
     }
 
     /// Calculate screen-space rotation of a 2D point being rotated around the camera.

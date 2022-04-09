@@ -6,7 +6,7 @@
 
 use nalgebra as na;
 use ofps::prelude::v1::*;
-use opencv::calib3d::{find_essential_mat, recover_pose_estimated, LMEDS, RANSAC};
+use opencv::calib3d::{find_essential_mat_matrix, recover_pose_estimated, LMEDS, RANSAC};
 use opencv::core::*;
 use std::collections::BTreeMap;
 
@@ -82,7 +82,7 @@ impl PrevMotion {
 pub struct MultiviewEstimator {
     desired_confidence: f32,
     max_error: f32,
-    max_iters: usize,
+    //max_iters: usize,
     use_ransac: bool,
     prev_motion: Option<PrevMotion>,
 }
@@ -98,7 +98,7 @@ impl Properties for MultiviewEstimator {
                 "Max error",
                 PropertyMut::float(&mut self.max_error, 0.00001, 0.1),
             ),
-            ("Max iters", PropertyMut::usize(&mut self.max_iters, 1, 500)),
+            //("Max iters", PropertyMut::usize(&mut self.max_iters, 1, 500)),
             ("Use ransac", PropertyMut::Bool(&mut self.use_ransac)),
         ]
     }
@@ -116,9 +116,9 @@ impl MultiviewEstimator {
         Self { max_error, ..self }
     }
 
-    pub fn max_iters(self, max_iters: usize) -> Self {
-        Self { max_iters, ..self }
-    }
+    //pub fn max_iters(self, max_iters: usize) -> Self {
+    //    Self { max_iters, ..self }
+    //}
 
     pub fn use_ransac(self, use_ransac: bool) -> Self {
         Self { use_ransac, ..self }
@@ -130,7 +130,7 @@ impl Default for MultiviewEstimator {
         Self {
             desired_confidence: 0.999,
             max_error: 0.0001,
-            max_iters: 200,
+            //max_iters: 200,
             use_ransac: true,
             prev_motion: None,
         }
@@ -172,14 +172,16 @@ impl MultiviewEstimator {
 
         let method = if self.use_ransac { RANSAC } else { LMEDS };
 
-        let essential = find_essential_mat(
+        // find_essential_mat allows to specify max_iters, however,
+        // it is less portable, and the API is different on debian.
+        let essential = find_essential_mat_matrix(
             &p1,
             &p2,
             &cam_matrix,
             method,
             self.desired_confidence as _,
             self.max_error as _,
-            self.max_iters as _,
+            //self.max_iters as _,
             &mut inliers,
         )?;
 
@@ -209,7 +211,7 @@ impl Estimator for MultiviewEstimator {
         // the rest of the codebase.
         let r = na::UnitQuaternion::from_matrix(&r).inverse();
         let (x, z, y) = r.euler_angles();
-        let r = na::UnitQuaternion::from_euler_angles(x * -1.0, y * -1.0, z);
+        let r = na::UnitQuaternion::from_euler_angles(x, y, z);
 
         // Check if rotation is over 90 degrees. Generally, this should not be possible, but is
         // caused by opencv acting weird.

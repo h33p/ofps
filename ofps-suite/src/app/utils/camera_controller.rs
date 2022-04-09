@@ -12,7 +12,7 @@ enum InMotion {
 
 impl InMotion {
     fn has_motion(&self) -> bool {
-        matches!(self, InMotion::None)
+        !matches!(self, InMotion::None)
     }
 }
 
@@ -52,7 +52,8 @@ impl Default for CameraController {
 
 impl CameraController {
     pub fn update(&mut self, ctx: &Context) {
-        let wants_input = ctx.wants_pointer_input() || ctx.wants_keyboard_input();
+        // || ctx.wants_keyboard_input();
+        let wants_input = ctx.wants_pointer_input();
         let over_area = ctx.is_pointer_over_area();
         let input = ctx.input();
 

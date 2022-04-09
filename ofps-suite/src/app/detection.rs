@@ -509,7 +509,7 @@ impl OfpsCtxApp for MotionDetectionApp {
                                         let motion = if sz == 0 {
                                             0.0
                                         } else {
-                                            *motion as f32 / sz as f32
+                                            100.0 * *motion as f32 / sz as f32
                                         };
                                         ui.label(format!("{motion}%"));
                                     } else {
