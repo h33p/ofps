@@ -241,7 +241,7 @@ Often times, the camera is not at the origin - it may be rotated and translated 
 	\left[ {\begin{array}{cccc}
 		r_{11} & r_{21} & r_{31} & - t_x \\
 		r_{12} & r_{22} & r_{32} & - t_y \\
-		r_{13} & r_{23} & r_{33} & - t_y \\
+		r_{13} & r_{23} & r_{33} & - t_z \\
 	\end{array} } \right]
 \end{equation}
 
@@ -295,7 +295,7 @@ We hypothesise that camera motion estimation may be possible with optical flow m
 
 This project contains a lot of moving parts across different disciplines: setting up hardware, software architecture design and development, paper implementation and improvements. Initially, the project focused around motion vector extraction from H.264 streams and involved testing its functionality. Later, it built several 3D motion estimation modules, starting from Almeida, then attempting to use libmv and OpenCV. Due to imperfect results, a different optical flow processing task was found - motion detection and thus a module was built for that purpose. Finally, once the library and accompanying modules proved to work sufficiently well, the core API was reworked, dynamic loading was built-in and a user friendly application was designed, which required further development, such as a 3D renderer, to present the results intuitively. The sections below describe the progress in the previously given order.
 
-Most of the code was written in Rust. It is a systems programming language that maximises performance without sacroficing safety, language abstractions and modularity. Given the project is focused around performance, the language was a clear choice. Standard Rust toolchain is employed, the current compiler version being 1.59.0. The project is compiled using standard cargo utility. The only non-standard part is the libmv module and its nuances will be explained in the dedicated section.
+Most of the code was written in Rust. It is a systems programming language that maximises performance without sacroficing safety, language abstractions and modularity. Given the project is focused around performance, the language was a clear choice. Standard Rust toolchain is employed, the current compiler version being 1.60.0. The project is compiled using standard cargo utility. The only non-standard part is the libmv module and its nuances will be explained in the dedicated section.
 
 \section{Optical Flow Processing Stack}
 
@@ -1094,7 +1094,7 @@ Given Almeida-RANSAC is the most accurate estimator, figure 4.6 compares the per
 
 \subsection{Real-world data}
 
-The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator was able to track camera motion relatively accurately (around 4 degree error for panning motion) and panorama view got created with sufficient contrast in the scene (see figure 3.11).
+The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator was able to track camera motion relatively accurately (around 1 degree error for panning motion) and panorama view got created with sufficient contrast in the scene (see figure 3.11).
 
 \newpage
 
