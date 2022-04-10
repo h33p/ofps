@@ -89,7 +89,7 @@ Tracking camera motion is an important task in many industries, including film, 
 
 \chapter{Introduction}
 
-Camera motion estimation is a task of determining how a camera moves in 3D space over time. Film industry relies on this task being performed accurately in order to overlay computer generated imagery atop filmed video, augmented reality applications attempt to perform the same process, but in realtime, while robotics industry has given this task the name of "visual odometry", and plenty of research has been put in performing it accurately on a live robot, while also extending it to perform dense reconstruction, simultanious localisation and mapping.
+Camera motion estimation is a task of determining how a camera moves in 3D space over time. Film industry relies on this task being performed accurately in order to overlay computer generated imagery atop filmed video, augmented reality applications attempt to perform the same process, but in real-time, while robotics industry has given this task the name of "visual odometry", and plenty of research has been put in performing it accurately on a live robot, while also extending it to perform dense reconstruction, simultaneous localisation and mapping.
 
 Typically, it is done by extracting moving features across frames and using a sufficient number of them to solve parameters of some camera motion model (description of camera motion). Two classes of feature extraction methods emerge: feature tracking and optical flow based. Feature tracking sparsely picks out highly contrasting parts of a frame and follows them for as many frames as possible. Meanwhile, optical flow represents apparent motion of objects across 2 consecutive frames and it can either be sparse or dense. An optical flow field is effectively a list of point and vector pairs representing 2D motion at given pixel coordinates. The key difference between these 2 methods is that feature tracking can represent motion with less error across a sequence of frames, while optical flow typically has more information for 2 consecutive frames, at a loss of continuity. Given the sheer amount of pixels needed to be processed, feature extraction step is often more expensive than 3D motion estimation. For instance, MaskFlowNet\cite{zhao2020maskflownet}, a state of the art dense optical flow generation method takes upwards of 300 milliseconds to compute per frame on a laptop GPU, while VOLDOR\cite{voldor} visual odometry system takes just 100 milliseconds to consume the outputted optical flow field and produce accurate visual odometry data.
 
@@ -110,7 +110,7 @@ Typically, it is done by extracting moving features across frames and using a su
 	\caption{\centering Feature tracking vs. Optical Flow. Tracking detects several key features and follows them over time, while optical flow aims to calculate direction vectors for a larger number of pixels.}
 \end{figure}
 
-Moving Picture Experts Group (MPEG) have designed a number of video encoding standards which heavily compress video files at low perceptual quality loss and they are ubiquitous to the point where most commodity hardware dedicate part of their silicon space for accelerated encoding and decoding of the latest MPEG video codecs - H.264/AVC\footnote{Advanced Video Coding}\cite{h264} and H.265/HEVC\footnote{High Efficiency Video Coding}\cite{h265}. The way this compression works is that blocks of pixels get moved between frames in accordance to encoded motion vectors and only a small amount of new pixels are encoded to fill in the gaps and make small adjustments to the resulting frame. Essentially, to save space video encoding relies on apparent motion estimation, or in other words - optical flow field computation. Many hardware accelerated H.264 encoders are able to process over 30 frames per second at resolutions of 1080p, thus if one could extract the encoded motion in a H.264 stream, a highly efficient motion estimation pipeline could be built to produce 3D motion data in realtime. However, the primary task of a video encoder is to compress video, not to compute accurate optical flow, thus the resulting motion field is noisy\cite{1334181} (see figure 1.2) and not as dense as one would prefer. As a result, their usability for 3D motion estimation is uncertain.
+Moving Picture Experts Group (MPEG) have designed a number of video encoding standards which heavily compress video files at low perceptual quality loss and they are ubiquitous to the point where most commodity hardware dedicate part of their silicon space for accelerated encoding and decoding of the latest MPEG video codecs - H.264/AVC\footnote{Advanced Video Coding}\cite{h264} and H.265/HEVC\footnote{High Efficiency Video Coding}\cite{h265}. The way this compression works is that blocks of pixels get moved between frames in accordance to encoded motion vectors and only a small amount of new pixels are encoded to fill in the gaps and make small adjustments to the resulting frame. Essentially, to save space video encoding relies on apparent motion estimation, or in other words - optical flow field computation. Many hardware accelerated H.264 encoders are able to process over 30 frames per second at resolutions of 1080p, thus if one could extract the encoded motion in a H.264 stream, a highly efficient motion estimation pipeline could be built to produce 3D motion data in real-time. However, the primary task of a video encoder is to compress video, not to compute accurate optical flow, thus the resulting motion field is noisy\cite{1334181} (see figure 1.2) and not as dense as one would prefer. As a result, their usability for 3D motion estimation is uncertain.
 
 \begin{figure}[!ht]
 	\centering
@@ -118,7 +118,7 @@ Moving Picture Experts Group (MPEG) have designed a number of video encoding sta
 	\caption{\centering Still frame reference and noisy optical flow from MPEG motion vectors.}
 \end{figure}
 
-This project analyses MPEG motion vectors, compares them against industry standard optical flow computation methods, looks at the ways they can be used in realtime operation and in the process we build a framework alongside an app for performing several motion processing tasks, such as motion detection and estimation.
+This project analyses MPEG motion vectors, compares them against industry standard optical flow computation methods, looks at the ways they can be used in real-time operation and in the process we build a framework alongside an app for performing several motion processing tasks, such as motion detection and estimation.
 
 \section{Project Aims}
 
@@ -126,7 +126,7 @@ The aim of this project is to build an integrated system for performing motion d
 
 \section{Related Work}
 
-There are several papers exploring motion tracking using MPEG motion vectors\cite{1334181}\cite{1414440}\cite{825867}. Another paper improves upon the previously mentioned techniques and achieves comparitavely high accuracy using simple motion field modeling and RANSAC for outlier removal\cite{almeida}. It is promising, however, due to its method not taking into account camera's field of view, the estimates of motion will only be correct up to a scale factor (thus their analysis only computed model's corellation not error). In addition, the authors' motion models are not accurate at the edges of the screen, thus there seems to be room for improvement (this point is related to not knowing the camera's field of view). Furthermore, the paper does not go into detail how exactly they implemented RANSAC - the inlier/outlier criteria is not specified. Overall, this paper is a good implementation candidate, but will require further development to complete it.
+There are several papers exploring motion tracking using MPEG motion vectors\cite{1334181}\cite{1414440}\cite{825867}. Another paper improves upon the previously mentioned techniques and achieves comparatively high accuracy using simple motion field modeling and RANSAC for outlier removal\cite{almeida}. It is promising, however, due to its method not taking into account camera's field of view, the estimates of motion will only be correct up to a scale factor (thus their analysis only computed model's correlation not error). In addition, the authors' motion models are not accurate at the edges of the screen, thus there seems to be room for improvement (this point is related to not knowing the camera's field of view). Furthermore, the paper does not go into detail how exactly they implemented RANSAC - the inlier/outlier criteria is not specified. Overall, this paper is a good implementation candidate, but will require further development to complete it.
 
 Broader, there is plenty of work in multiple view geometry. Several industry standard tools work on sequences of tracked 2D points, including Blender's\footnote{Open-source 3D modelling software.} libmv\cite{libmv} and OpenCV\cite{opencv5calib}. There also exists a paper improving the algorithms employed by the libraries, and works with just 5 data points\cite{1211470}. At the base case, the underlying algorithms attempt to estimate a matrix that relates points between images, known as fundamental matrix. There is an implicit problem of scale ambiguity\cite{hartley_zisserman_2004} with these methods - it is difficult to have consistent positional scale throughout time, because computed matrices produce translation values accurate only up to a scale factor. The aforementioned libraries have built-in algorithms for solving the problem for a sequence of frames, and they are proven to work well, but points need to be tracked throughout the sequence, which makes it unsuitable for optical flow.
 
@@ -138,7 +138,7 @@ There is recent work on creating visual odometry from dense optical flow fields\
 	\caption{\centering Optical flow from MaskFlowNet (above) compared to MPEG motion vectors (below).}
 \end{figure}
 
-Neither of the mentioned work solves the our problem completely. Thus, we believe there is a gap in current research and development, due to no system existing for doing realtime absolute motion tracking using MPEG. The papers either sacrifice realtime performance for accuracy, or are underspecified and too unconstrained. Other work does not suit optical flow very well, and by extension is not perfectly suitable for our domain. Thus, we will attempt to combine several of these methods, propose potential improvements and analyse what works best.
+Neither of the mentioned work solves the our problem completely. Thus, we believe there is a gap in current research and development, due to no system existing for doing real-time absolute motion tracking using MPEG. The papers either sacrifice real-time performance for accuracy, or are under-specified and too unconstrained. Other work does not suit optical flow very well, and by extension is not perfectly suitable for our domain. Thus, we will attempt to combine several of these methods, propose potential improvements and analyse what works best.
 
 \chapter{Background}
 
@@ -150,9 +150,9 @@ Motion Picture Experts Group has developed a number of video encoding standards 
 
 \subsection{Encoding}
 
-Various video streaming websites serve H.264 encoded video. YouTube recommends a 1080p video to be encoded at the bitrate of 8 megabits per second\cite{youtube}. For context, a single $1920 \times 1080$ RGB frame is nearly 8 megabytes of size, while a single JPEG will average between 100 and 300 kilobytes in size. For a 30 FPS video, YouTube asks each frame to average 34 kilobytes in size - that is $1/470$th of a raw frame, and around $1/5$th of a JPEG. Yet, a video with such high compression will look sufficiently high quality for a viewer not to notice any artifacts. The reason this is possible is due to intra-frame compression.
+Various video streaming websites serve H.264 encoded video. YouTube recommends a 1080p video to be encoded at the bit rate of 8 megabits per second\cite{youtube}. For context, a single $1920 \times 1080$ RGB frame is nearly 8 megabytes of size, while a single JPEG will average between 100 and 300 kilobytes in size. For a 30 FPS video, YouTube asks each frame to average 34 kilobytes in size - that is $1/470$th of a raw frame, and around $1/5$th of a JPEG. Yet, a video with such high compression will look sufficiently high quality for a viewer not to notice any artifacts. The reason this is possible is due to intra-frame compression.
 
-An MPEG video consists of several sparsely placed intra-frames, known as \textbf{I-frames} and series of predicted frames (\textbf{P-frames} and \textbf{B-frames}). Intra-frame is effectively a JPEG image, while a predicted frame contains changes in relation to other frames. The difference between P and B frames is that P frames only look at a keyframe behind (I or P frame), while B frames are interpolated bi-directionally between the previous and the next keyframes. A single intra-frame and all subsequent predicted frames form a group of pictures, known as GoP.
+An MPEG video consists of several sparsely placed intra-frames, known as \textbf{I-frames} and series of predicted frames (\textbf{P-frames} and \textbf{B-frames}). Intra-frame is effectively a JPEG image, while a predicted frame contains changes in relation to other frames. The difference between P and B frames is that P frames only look at a keyframe behind (I or P frame), while B frames are interpolated bi-bidirectionally between the previous and the next keyframes. A single intra-frame and all subsequent predicted frames form a group of pictures, known as GoP.
 
 \begin{figure}[!ht]
 	\centering
@@ -188,7 +188,7 @@ Predicted frames is how MPEG video is able to achieve such a high compression ra
 
 \subsubsection{"Datamoshing"}
 
-An interesting experiment can be done to visualise how MPEG works by intentionally corrupting the encoded stream. In non-scientific literature this process is known as datamoshing. If a video contains just a single GoP, it is possible to replace the only I-frame in the video with a different image and visualy see what changes are encoded in the predicted frames throughout the entire clip. Most notably, high contrast areas are likely to be moved in accordance to camera motion, while low contrast areas are likely to blur themselves out due to the noisiness of the encoded motion vectors (see figure 2.2).
+An interesting experiment can be done to visualise how MPEG works by intentionally corrupting the encoded stream. In non-scientific literature this process is known as datamoshing. If a video contains just a single GoP, it is possible to replace the only I-frame in the video with a different image and visually see what changes are encoded in the predicted frames throughout the entire clip. Most notably, high contrast areas are likely to be moved in accordance to camera motion, while low contrast areas are likely to blur themselves out due to the noisiness of the encoded motion vectors (see figure 2.2).
 
 \begin{figure}[!ht]
 	\centering
@@ -209,12 +209,12 @@ An interesting experiment can be done to visualise how MPEG works by intentional
 
 \section{Pinhole camera model}
 
-The pinhole camera model is the simplest mathematical description of coordinate relationship in 3D space to their projection onto image plane of a camera. In this model, camera's aperature is described as a point, there are no lenses, and by extension - image distortion. Pinhole camera has a focal length $f$ that describes distance of the image plane to the aperature, as well as principal axis that goes through the aperature and perpendicularly intersects the image plane at the principal point $\mathbf{p}$. Given a 2D point $\mathbf{a} = (x, y)^T$, camera's principal point $p = 0$, its projection on 1D image line will be on point $a_p = (p - y) * \frac{f}{x}$.
+The pinhole camera model is the simplest mathematical description of coordinate relationship in 3D space to their projection onto image plane of a camera. In this model, camera's aperture is described as a point, there are no lenses, and by extension - image distortion. Pinhole camera has a focal length $f$ that describes distance of the image plane to the aperture, as well as principal axis that goes through the aperture and perpendicularly intersects the image plane at the principal point $\mathbf{p}$. Given a 2D point $\mathbf{a} = (x, y)^T$, camera's principal point $p = 0$, its projection on 1D image line will be on point $a_p = (p - y) * \frac{f}{x}$.
 
 \begin{figure}[!ht]
 	\centering
 	\includegraphics[width=270pt]{docs/report/pinhole-camera.jpg}
-	\caption{\centering Geometry of a pinhole camera. Light ray projects Suzanne's ear on the opposite side of the image plane, while passing through the aperature, defined by principal point $\mathbf{p}$. Size of the projection depends on the focal length $f$, and distance to points from camera in 3D space.}
+	\caption{\centering Geometry of a pinhole camera. Light ray projects Suzanne's ear on the opposite side of the image plane, while passing through the aperture, defined by principal point $\mathbf{p}$. Size of the projection depends on the focal length $f$, and distance to points from camera in 3D space.}
 \end{figure}
 
 \subsection{3D Projection}
@@ -259,7 +259,7 @@ Often times, the camera is not at the origin - it may be rotated and translated 
 
 \section{Two-View Geometry}
 
-Two-view geometry, also known as epipolar geometry concerns itself about the relationship of 2 views given 2D point correspondances. From a single view it is impossible to determine how far away a point in the image is - it only defines a line. Given a first view point $\mathbf{l} = (kx, ky, k)^T$ in homogeneous coordinates, its correspondance in the second view $\mathbf{l}' = (kx', ky', k)^T$, and relative pose between the views, these points can be intersected and a point in 3D space may be resolved. However, often times, pose of the views is unknown. Thus, to perform triangulation, relationship between the 2 views needs to be calculated from a number of 2D point correspondances in the form of a fundamental matrix.
+Two-view geometry, also known as epipolar geometry concerns itself about the relationship of 2 views given 2D point correspondences. From a single view it is impossible to determine how far away a point in the image is - it only defines a line. Given a first view point $\mathbf{l} = (kx, ky, k)^T$ in homogeneous coordinates, its correspondence in the second view $\mathbf{l}' = (kx', ky', k)^T$, and relative pose between the views, these points can be intersected and a point in 3D space may be resolved. However, often times, pose of the views is unknown. Thus, to perform triangulation, relationship between the 2 views needs to be calculated from a number of 2D point correspondences in the form of a fundamental matrix.
 
 \begin{figure}[!ht]
 	\centering
@@ -269,7 +269,7 @@ Two-view geometry, also known as epipolar geometry concerns itself about the rel
 
 \subsection{The fundamental matrix}
 
-The fundamental matrix $\mathbf{E}$ is an algebraic representation of epipolar geometry. It is a $3 \times 3$ matrix of rank 2. If a point in 3-space $\mathbf{x_w}$ is imaged as $\mathbf{x}$ in the first view (in homogeneous coordinates), and $\mathbf{x'}$ in the second, then the image points satisfy the relationship defined by equation 2.6\cite{hartley_zisserman_2004}, i.e. $\mathbf{Fx}$ becomes perpendicular to $\mathbf{x'}$. The fundamental matrix has 7 degrees of freedom - it depends on both view pose changes, and intrinsic camera parameters. Several industry standard libraries implement algorithms for robust fundamental matrix estimation, such as Blender's libmv and OpenCV. There is a recent paper describing robust estimation from only 5 data points\cite{8578130}. Once a fundamental matrix is known, and given intrinsic camera parameters, it is possible to compute 3D positions of the 2D point correspondances, through the process of triangulation.
+The fundamental matrix $\mathbf{E}$ is an algebraic representation of epipolar geometry. It is a $3 \times 3$ matrix of rank 2. If a point in 3-space $\mathbf{x_w}$ is imaged as $\mathbf{x}$ in the first view (in homogeneous coordinates), and $\mathbf{x'}$ in the second, then the image points satisfy the relationship defined by equation 2.6\cite{hartley_zisserman_2004}, i.e. $\mathbf{Fx}$ becomes perpendicular to $\mathbf{x'}$. The fundamental matrix has 7 degrees of freedom - it depends on both view pose changes, and intrinsic camera parameters. Several industry standard libraries implement algorithms for robust fundamental matrix estimation, such as Blender's libmv and OpenCV. There is a recent paper describing robust estimation from only 5 data points\cite{8578130}. Once a fundamental matrix is known, and given intrinsic camera parameters, it is possible to compute 3D positions of the 2D point correspondences, through the process of triangulation.
 
 \begin{equation}
 	\mathbf{x'}^T \mathbf{F} \mathbf{x} = 0
@@ -277,7 +277,7 @@ The fundamental matrix $\mathbf{E}$ is an algebraic representation of epipolar g
 
 \subsection{The essential matrix}
 
-If camera intrinsics are known (camera is calibrated), it is possible to use them to constrain the freedom of the fundamental matrix, and compute it more accurately, with fewer data points. The essential matrix $\mathbf{E}$ is the the specialisation of the fundamental matrix to the case of normalised image coordinates\cite{hartley_zisserman_2004}. The essential matrix has fewer degrees of freedom - only 5. Other parameters are constrained by requiring knowlege of intrinsic camera parameters. OpenCV has an implementation solving the essential matrix using D. Nister's efficient 5 point algorithm\cite{1211470}. We will rely on both of these matrices when constructing some of our motion estimators.
+If camera intrinsics are known (camera is calibrated), it is possible to use them to constrain the freedom of the fundamental matrix, and compute it more accurately, with fewer data points. The essential matrix $\mathbf{E}$ is the the specialisation of the fundamental matrix to the case of normalised image coordinates\cite{hartley_zisserman_2004}. The essential matrix has fewer degrees of freedom - only 5. Other parameters are constrained by requiring knowledge of intrinsic camera parameters. OpenCV has an implementation solving the essential matrix using D. Nister's efficient 5 point algorithm\cite{1211470}. We will rely on both of these matrices when constructing some of our motion estimators.
 
 \section{Problem formulation}
 
@@ -303,7 +303,7 @@ We hypothesise that camera motion estimation may be possible with optical flow m
 
 This project contains a lot of moving parts across different disciplines: setting up hardware, software architecture design and development, paper implementation and improvements. Initially, the project focused around motion vector extraction from H.264 streams and involved testing its functionality. Later, it built several 3D motion estimation modules, starting from Almeida, then attempting to use libmv and OpenCV. Due to imperfect results, a different optical flow processing task was found - motion detection and thus a module was built for that purpose. Finally, once the library and accompanying modules proved to work sufficiently well, the core API was reworked, dynamic loading was built-in and a user friendly application was designed, which required further development, such as a 3D renderer, to present the results intuitively. The sections below describe the progress in the previously given order.
 
-Most of the code was written in Rust. It is a systems programming language that maximises performance without sacroficing safety, language abstractions and modularity. Given the project is focused around performance, the language was a clear choice. Standard Rust toolchain is employed, the current compiler version being 1.60.0. The project is compiled using standard cargo utility. The only non-standard part is the libmv module and its nuances will be explained in the dedicated section.
+Most of the code was written in Rust. It is a systems programming language that maximises performance without sacrificing safety, language abstractions and modularity. Given the project is focused around performance, the language was a clear choice. Standard Rust toolchain is employed, the current compiler version being 1.60.0. The project is compiled using standard cargo utility. The only non-standard part is the libmv module and its nuances will be explained in the dedicated section.
 
 \section{Optical Flow Processing Stack}
 
@@ -387,7 +387,7 @@ Several 3D motion estimation modules were developed. They are split into separat
 
 \subsection{Modified Almeida estimator}
 
-We implement the method proposed by Almeida et al. that finds the best-fit affine model to estimate camera motion by using least squares method\cite{almeida}. The crate of the implementation was named almeida-estimator. We modify their paper to suit it to our problem and to introduce several improvements to the algorithm. This method only produces rotation and zoom information - no 3D position changes. Since the Estimator trait requires prior knowlege of camera intrinsics, we will remove computation of lens zoom. However, Estimator's rotation output must be absolute and the proposed algorithm does not produce such values. We solve this issue by modeling our own panning, tilting and rolling prototypes, that are computed using camera intrinsics. The prototypes are essentially discrete derivatives of rotation by some angle $\epsilon$, and in the implementation it was set to 0.001 degrees.
+We implement the method proposed by Almeida et al. that finds the best-fit affine model to estimate camera motion by using least squares method\cite{almeida}. The crate of the implementation was named almeida-estimator. We modify their paper to suit it to our problem and to introduce several improvements to the algorithm. This method only produces rotation and zoom information - no 3D position changes. Since the Estimator trait requires prior knowledge of camera intrinsics, we will remove computation of lens zoom. However, Estimator's rotation output must be absolute and the proposed algorithm does not produce such values. We solve this issue by modeling our own panning, tilting and rolling prototypes, that are computed using camera intrinsics. The prototypes are essentially discrete derivatives of rotation by some angle $\epsilon$, and in the implementation it was set to 0.001 degrees.
 
 \subsubsection{RANSAC}
 
@@ -395,7 +395,7 @@ Authors used RANSAC\cite{FISCHLER1987726} (RANdom SAmple Consensus) algorithm to
 
 The metric used to check whether a sample is an inlier or not depends on the problem being solved and the paper does not specify it. In simple problems, such as line fitting, euclidean distance is often used as an evaluation metric. Given a point $\mathbf{p}$ and its estimate $\mathbf{h}$, checking if the point is an inlier can be done by checking whether $||\mathbf{p} - \mathbf{h}|| \leq c$ holds true, where $c$ is a constant threshold. Due to projective distortion, this does not work for our problem. With wide camera view, apparent motion at the center of the frame does not match the motion at the edges of the screen - the latter points have bigger apparent motion than ones at the center. Thus, we had to develop our own metric that works sufficiently well for our problem.
 
-Given a pixel in the view at angle $\alpha$ from the center of view, rotating the camera towards that point by small angle $\theta$ will produce apparent motion that is higher than the motion at the center of view by the factor of $\frac{1}{cos(\alpha)}$. Thus, given a point at angle $\alpha$, its motion vector $\mathbf{v}$, model estimate $\mathbf{h}$ and theshold $c$, determening whether a sample is an inlier or an outlier can be done by checking whether $||\mathbf{h} - \mathbf{v}|| * cos(\alpha) \leq c$ holds true. However, vertical and horizontal angles can differ significantly, which could lead to high tolerances for error in non-dominant motion, thus our implementation computes 2 different angles $\alpha_x$ and $\alpha_y$ for horizontal and vertical axis respectively. Afterwards, inequality 3.X is used to determine whether the inlier status of the data sample.
+Given a pixel in the view at angle $\alpha$ from the center of view, rotating the camera towards that point by small angle $\theta$ will produce apparent motion that is higher than the motion at the center of view by the factor of $\frac{1}{cos(\alpha)}$. Thus, given a point at angle $\alpha$, its motion vector $\mathbf{v}$, model estimate $\mathbf{h}$ and threshold $c$, determining whether a sample is an inlier or an outlier can be done by checking whether $||\mathbf{h} - \mathbf{v}|| * cos(\alpha) \leq c$ holds true. However, vertical and horizontal angles can differ significantly, which could lead to high tolerances for error in non-dominant motion, thus our implementation computes 2 different angles $\alpha_x$ and $\alpha_y$ for horizontal and vertical axis respectively. Afterwards, inequality 3.X is used to determine whether the inlier status of the data sample.
 
 \begin{equation}
 	||(cos(\alpha_x) (h_x - v_x), cos(\alpha_y) (h_y - v_y))^T|| \leq c
@@ -427,7 +427,7 @@ We further improved the accuracy of the model by iteratively applying the least 
 			\addplot[green,thick,quiver={u=\thisrow{u},v=\thisrow{v}},-stealth] table[col sep=comma] {docs/report/mfield/4.csv};
 		\end{axis}
 	\end{tikzpicture}
-	\caption{\centering Iterative optimisation steps visualised. Blue arrows are raw motion vectors, red dashes show initial rotation estimate, and green arrows model estimated rotation in 5 substeps of $\alpha = 0.3$. The initial estimate is inaccurate due to it not taking into account curvature of space, while iterative optimisation converges to correct motion.}
+	\caption{\centering Iterative optimisation steps visualised. Blue arrows are raw motion vectors, red dashes show initial rotation estimate, and green arrows model estimated rotation in 5 sub-steps of $\alpha = 0.3$. The initial estimate is inaccurate due to it not taking into account curvature of space, while iterative optimisation converges to correct motion.}
 \end{figure}
 
 \subsection{libmv estimator}
@@ -467,7 +467,7 @@ Any C++ libraries need first to be wrapped in C ABI before used from Rust, due t
 	\caption{\centering Flow of invoking libmv.}
 \end{figure}
 
-To use libmv-rust, location of compiled libmv libraries needs to be known. Thus, an environment file was created that can be sourced on linux using the source command.
+To use libmv-rust, location of compiled libmv libraries needs to be known. Thus, an environment file was created that can be sourced on Linux using the source command.
 
 \subsubsection{Pipeline}
 
@@ -528,7 +528,7 @@ As the name implies, this detector checks for motion in fixed size blocks. First
 
 The next phase filters out noise and picks out motion that is of sufficiently large area by using Flood Fill algorithm. A block with sufficient motion is found and the algorithm checks all neighbors for motion. Any such neighbors get marked and then their neighbors get checked, so on until all connected blocks with motion get detected. This forms an island, and the algorithm finds the largest one.
 
-If the resulting island has area over a certain thershold, the detector returns that there is motion, as well as the island itself. Parameters for minimal motion, target area, and motion field resolution are configurable by the user through the Properties trait. If configured correctly, the algorithm filters out noise and checks whether there is a moving object big enough to be considered for detection.
+If the resulting island has area over a certain threshold, the detector returns that there is motion, as well as the island itself. Parameters for minimal motion, target area, and motion field resolution are configurable by the user through the Properties trait. If configured correctly, the algorithm filters out noise and checks whether there is a moving object big enough to be considered for detection.
 
 \begin{figure}[!ht]
 	\centering
@@ -636,11 +636,11 @@ Performing optical flow field decoding is a relatively intensive task and it wou
 
 \subsection{Motion Tracking}
 
-Motion tracking is a more complex application that allows the user to create panoramas from video. It supports running multiple estimators simultaniously and also has built-in tools for comparing their estimates to ground-truth data.
+Motion tracking is a more complex application that allows the user to create panoramas from video. It supports running multiple estimators simultaneously and also has built-in tools for comparing their estimates to ground-truth data.
 
 \subsubsection{Interface}
 
-Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical field of view and aspect ratio. Any number of estimators may be added and each of them can be configured with general properties and ones specific to the estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section, and the camera can be orbitted around center of focus using the left mouse button, zoomed in and out with the scroll wheel, as well as panned with the mouse while holding the shift key.
+Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical field of view and aspect ratio. Any number of estimators may be added and each of them can be configured with general properties and ones specific to the estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section, and the camera can be orbited around center of focus using the left mouse button, zoomed in and out with the scroll wheel, as well as panned with the mouse while holding the shift key.
 
 \begin{figure}[!ht]
 	\centering
@@ -654,7 +654,7 @@ Loading the decoder is done the same way as in the motion detection app, but it 
 	\caption{\centering Panorama view. Yellow cube indicates the focus point around which the camera currently orbits around.}
 \end{figure}
 
-A ground truth CSV file may be loaded for comparison. Blender files for the project's synthetic videos use a script to export the truth data. Upon loading the data, average per-frame error of each estimator is computed and is shown in degrees. These results can then be exported, including indivudual per-frame errors and angles (in radians).
+A ground truth CSV file may be loaded for comparison. Blender files for the project's synthetic videos use a script to export the truth data. Upon loading the data, average per-frame error of each estimator is computed and is shown in degrees. These results can then be exported, including individual per-frame errors and angles (in radians).
 
 Similarly to the motion detection module, performance metrics are available. From the design standpoint, the exact same code is being run, thus providing streamlined user experience.
 
@@ -700,7 +700,7 @@ When it comes to drawing frames, we are drawing multiple of them, instead of jus
 	\caption{\centering Sequence of loading RGBA data on the GPU. Worker produces RGBA frames, but for them to be displayed, UI thread has to load them on the GPU. Upon loading each frame, the state of the it is switched from RGBA buffer to GPU texture.}
 \end{figure}
 
-As for the estimators, they are being executed in parallel using rayon\cite{rayon}. However, motion estimation is a more complex task compared to simple boolean detection and the architecture would be suboptimal if decoding and estimation were to run in sequence. Thus, there is another worker thread dedicated to motion vector extraction - the thread decodes the optical flow field and sends the results out through a synchronised channel. The key detail here is that the channel is set up to be rendezvous\cite{rust_sync_channel} - the decoder thread blocks until the main worker thread is able to receive the results, thus only a single frame gets processed ahead of time. Upon accepting the result, worker thread executes the estimators, while the decoder thread performs motion vector extraction.
+As for the estimators, they are being executed in parallel using rayon\cite{rayon}. However, motion estimation is a more complex task compared to simple boolean detection and the architecture would be sub-optimal if decoding and estimation were to run in sequence. Thus, there is another worker thread dedicated to motion vector extraction - the thread decodes the optical flow field and sends the results out through a synchronised channel. The key detail here is that the channel is set up to be rendezvous\cite{rust_sync_channel} - the decoder thread blocks until the main worker thread is able to receive the results, thus only a single frame gets processed ahead of time. Upon accepting the result, worker thread executes the estimators, while the decoder thread performs motion vector extraction.
 
 \begin{figure}[!ht]
 	\centering
@@ -770,7 +770,7 @@ As for the estimators, they are being executed in parallel using rayon\cite{rayo
 		(-5,-3.2) edge node {Time} (11,-3.2);
 
 	\end{tikzpicture}
-	\caption{\centering Multithreaded architecture of motion tracking app. Decoder thread extracts motion vectors simultaniously with worker thread's tracking steps, which are further split in parallel using rayon parallel for\_each loops. If the decoder produces frames faster than the worker thread, it will wait for it, and vice versa. Meanwhile, UI thread accesses the latest results available, and updates the worker with the latest settings values. }
+	\caption{\centering Multithreaded architecture of motion tracking app. Decoder thread extracts motion vectors simultaneously with worker thread's tracking steps, which are further split in parallel using rayon parallel for\_each loops. If the decoder produces frames faster than the worker thread, it will wait for it, and vice versa. Meanwhile, UI thread accesses the latest results available, and updates the worker with the latest settings values. }
 \end{figure}
 
 \section{wimrend 3D renderer}
@@ -821,7 +821,7 @@ The previous subsections only described the process of drawing 3D objects onto t
 		(R7) edge node {} (R1);
 
 	\end{tikzpicture}
-	\caption{\centering Render loop with OFPS Suite's substate. wimrend has no knowlege of the substate, but is able to provide facilities to drive custom logic and rendering.}
+	\caption{\centering Render loop with OFPS Suite's sub-state. wimrend has no knowledge of the sub-state, but is able to provide facilities to drive custom logic and rendering.}
 \end{figure}
 
 
@@ -839,7 +839,7 @@ In order to test the estimators a large number of tests were conducted using dif
 
 In total, 192 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution). We picked such low resolution, because epipolar geometry based estimators could not handle that many motion vectors. Samples used and estimator configurations are available in Appendix B.
 
-We attempted to track translational movement of the camera as well, but the performance of libmv and multiview estimators was unsuitable for analysis. Even using prior knowlege of the video to normalise estimated translation vectors did not yield accurate results (see figure 4.1). Thus, we decided against testing that.
+We attempted to track translational movement of the camera as well, but the performance of libmv and multiview estimators was unsuitable for analysis. Even using prior knowledge of the video to normalise estimated translation vectors did not yield accurate results (see figure 4.1). Thus, we decided against testing that.
 
 \begin{figure}[!ht]
 	\centering
@@ -849,7 +849,7 @@ We attempted to track translational movement of the camera as well, but the perf
 
 \subsection{Runtime Performance}
 
-Figure 4.2 plots average performance of each estimator under different optical flow decoders. Estimators were run in parallel on each clip using an AMD Ryzen 9 3950X CPU, and these results were averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logaritmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In all cases, the fastest estimator is Homography-RANSAC. Almeida and Homography based estimators are able to process at least 30 frames per second, while epipolar geometry based estimators are not usable at all in realtime scenarios. Let us see now how accurate the results are.
+Figure 4.2 plots average performance of each estimator under different optical flow decoders. Estimators were run in parallel on each clip using an AMD Ryzen 9 3950X CPU, and these results were averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logarithmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In all cases, the fastest estimator is Homography-RANSAC. Almeida and Homography based estimators are able to process at least 30 frames per second, while epipolar geometry based estimators are not usable at all in realtime scenarios. Let us see now how accurate the results are.
 
 \begin{figure}[!ht]
 \begin{center}
@@ -1116,7 +1116,7 @@ Optical Flow Processing Stack can be evaluated by its modularity. The core libra
 			\hline
 			 & ofps & mvec-av & mvec-cv & block-motion-detector \\ [0.5ex] 
 			\hline
-			LoC & 1052 & 410 & 282 & 101 \\ 
+			LoC & 1004 & 400 & 273 & 101 \\
 			\hline
 		\end{tabular}
 
@@ -1126,7 +1126,7 @@ Optical Flow Processing Stack can be evaluated by its modularity. The core libra
 			\hline
 			 & almeida-estimator & libmv-estimator & multiview-estimator & homography-estimator \\ [0.5ex] 
 			\hline
-			LoC & 345 & 323 & 300 & 221 \\ 
+			LoC & 298 & 315 & 199 & 221 \\
 			\hline
 		\end{tabular}
 	\end{center}
@@ -1151,7 +1151,7 @@ while let Ok(_) = decoder.process_frame(&mut mv, None, 0) {
 }
 \end{minted}
 
-OFPS core library has been fully documented, each plugin has a description, and this documentation can be viewed using \texttt{cargo doc --open} command. In addition, several miscelaneous utilities are available in the repository for optical flow extraction.
+OFPS core library has been fully documented, each plugin has a description, and this documentation can be viewed using \texttt{cargo doc --open} command. In addition, several miscellaneous utilities are available in the repository for optical flow extraction.
 
 \chapter{Conclusion}
 
