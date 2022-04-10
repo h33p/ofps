@@ -102,7 +102,7 @@ pub struct MotionTrackingConfig {
     draw_perf_stats: DrawPerfStats,
     #[serde(default)]
     estimators: Vec<(CreateEstimatorUiConfig, bool, EstimatorSettings)>,
-    camera_fov_x: f32,
+    camera_aspect: f32,
     camera_fov_y: f32,
     #[serde(default)]
     realtime_processing: bool,
@@ -361,7 +361,7 @@ impl MotionTrackingApp {
             draw_ground_truth,
             draw_perf_stats,
             estimators,
-            camera_fov_x,
+            camera_aspect,
             camera_fov_y,
             realtime_processing,
             decoder_properties,
@@ -377,7 +377,7 @@ impl MotionTrackingApp {
 
         self.create_decoder_state.config = decoder.0;
 
-        self.app_settings.camera = StandardCamera::new(camera_fov_x, camera_fov_y);
+        self.app_settings.camera = StandardCamera::new(camera_aspect, camera_fov_y);
         self.app_settings.settings.clear();
         self.app_settings.realtime_processing = realtime_processing;
         self.app_settings.decoder_properties = decoder_properties;
@@ -426,7 +426,8 @@ impl MotionTrackingApp {
     }
 
     fn save_cfg(&self) -> MotionTrackingConfig {
-        let (camera_fov_x, camera_fov_y) = self.app_settings.camera.fov();
+        let (_, camera_fov_y) = self.app_settings.camera.fov();
+        let camera_aspect = self.app_settings.camera.aspect_ratio();
 
         MotionTrackingConfig {
             decoder: (
@@ -456,7 +457,7 @@ impl MotionTrackingApp {
                     (cfg, loaded.load(Ordering::Relaxed), settings.clone())
                 })
                 .collect(),
-            camera_fov_x,
+            camera_aspect,
             camera_fov_y,
             realtime_processing: self.app_settings.realtime_processing,
             decoder_properties: self.app_settings.decoder_properties.clone(),
@@ -586,17 +587,18 @@ impl OfpsCtxApp for MotionTrackingApp {
                     ui.separator();
 
                     Grid::new(format!("camera_settings")).show(ui, |ui| {
-                        let (mut fov_x, mut fov_y) = self.app_settings.camera.fov();
+                        let (_, mut fov_y) = self.app_settings.camera.fov();
+                        let mut aspect = self.app_settings.camera.aspect_ratio();
 
-                        ui.label("Horizontal FOV");
-                        ui.add(Slider::new(&mut fov_x, 0.01..=179.0));
+                        ui.label("Aspect ratio");
+                        ui.add(Slider::new(&mut aspect, 0.01..=5.0));
                         ui.end_row();
 
                         ui.label("Vertical FOV");
                         ui.add(Slider::new(&mut fov_y, 0.01..=179.0));
                         ui.end_row();
 
-                        self.app_settings.camera = StandardCamera::new(fov_x, fov_y);
+                        self.app_settings.camera = StandardCamera::new(aspect, fov_y);
                     });
 
                     ui.separator();
@@ -652,13 +654,6 @@ impl OfpsCtxApp for MotionTrackingApp {
                                     settings.clear_count += 1;
                                 }
 
-                                ui.end_row();
-                                ui.label("Angle delta");
-                                ui.add(
-                                    Slider::new(&mut settings.layer_angle_delta, 0.01..=90.0)
-                                        .step_by(0.01)
-                                        .logarithmic(true),
-                                );
                                 ui.end_row();
 
                                 ui.label("Keep frames");

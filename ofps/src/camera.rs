@@ -11,7 +11,7 @@ use nalgebra as na;
 /// The principal point is defined at `(0.5; 0.5)` coordinates.
 #[derive(Clone, Copy, Debug)]
 pub struct StandardCamera {
-    fov_x: f32,
+    aspect: f32,
     fov_y: f32,
     proj: na::Perspective3<f32>,
     inv_proj: na::Matrix4<f32>,
@@ -22,13 +22,13 @@ impl StandardCamera {
     ///
     /// # Argumenta
     ///
-    /// * `fov_x` - horizontal field-of-view (in degrees).
+    /// * `aspect` - screen aspect ratio.
     /// * `fov_y` - vertical field-of-view (in degrees).
-    pub fn new(fov_x: f32, fov_y: f32) -> Self {
-        let proj = na::Perspective3::new(fov_x / fov_y, fov_y.to_radians(), 0.1, 10.0);
+    pub fn new(aspect: f32, fov_y: f32) -> Self {
+        let proj = na::Perspective3::new(aspect, fov_y.to_radians(), 0.1, 10.0);
 
         Self {
-            fov_x,
+            aspect,
             fov_y,
             inv_proj: proj.inverse(),
             proj,
@@ -137,8 +137,8 @@ impl StandardCamera {
 
     /// Get camera intrinsic parameters.
     pub fn intrinsics(&self) -> na::Matrix3<f32> {
-        let fx = 0.5 / (self.fov_x.to_radians() / 2.0).tan();
         let fy = 0.5 / (self.fov_y.to_radians() / 2.0).tan();
+        let fx = fy / self.aspect;
 
         na::matrix![
             fx, 0.0, 0.5;
@@ -160,7 +160,7 @@ impl StandardCamera {
     /// use ofps::camera::StandardCamera;
     /// use nalgebra as na;
     ///
-    /// let camera = StandardCamera::new(90.0, 90.0);
+    /// let camera = StandardCamera::new(1.0, 90.0);
     ///
     /// let angle = camera.point_angle(na::matrix![1.0; 0.5].into());
     ///
@@ -181,9 +181,18 @@ impl StandardCamera {
 
     /// Get the camera's field of view.
     ///
-    /// Returns horizontal and vertical field of view as a tuple.
+    /// Returns horizontal and vertical field of view in degrees as a tuple.
     pub fn fov(&self) -> (f32, f32) {
-        (self.fov_x, self.fov_y)
+        let ty = (self.fov_y.to_radians() / 2.0).tan();
+        let tx = self.aspect * ty;
+        (tx.atan().to_degrees() * 2.0, self.fov_y)
+    }
+
+    /// Get the camera's aspect ratio.
+    ///
+    /// Returns vertical focal length divided by horizontal focal length.
+    pub fn aspect_ratio(&self) -> f32 {
+        self.aspect
     }
 
     /// Calculate the essential matrix given a fundamental one.

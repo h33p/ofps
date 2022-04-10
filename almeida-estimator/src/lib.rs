@@ -302,7 +302,7 @@ pub mod tests {
     }
 
     fn test_rot(mut estimator: AlmeidaEstimator) {
-        let camera = StandardCamera::new(90.0, 90.0);
+        let camera = StandardCamera::new(1.0, 90.0);
 
         let grid = get_grid(50, 50, &camera);
 
@@ -337,6 +337,8 @@ pub mod tests {
                 let (r, _) = estimator.estimate(&field, &camera, None).unwrap();
 
                 let delta = q.angle_to(&r).to_degrees();
+
+                println!("E: {}", delta / rot);
 
                 assert!(
                     delta < 0.1 * rot,

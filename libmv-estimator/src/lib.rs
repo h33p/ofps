@@ -360,7 +360,7 @@ mod tests {
             (ROT, ROT, ROT),
         ];
 
-        let camera = StandardCamera::new(170.0, 170.0);
+        let camera = StandardCamera::new(1.0, 170.0);
 
         let mut grid = get_grid(50, 50, &camera);
 

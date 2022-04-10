@@ -23,7 +23,6 @@ pub struct EstimatorSettings {
     pub scale_factor: f32,
     pub camera_offset: f32,
     pub layer_frames: bool,
-    pub layer_angle_delta: f32,
     pub keep_frames: usize,
     #[serde(skip)]
     pub clear_count: usize,
@@ -37,7 +36,6 @@ impl Default for EstimatorSettings {
             scale_factor: 0.0,
             camera_offset: 1.0,
             layer_frames: true,
-            layer_angle_delta: 0.5,
             keep_frames: 100,
             clear_count: 0,
             properties: Default::default(),
@@ -76,16 +74,7 @@ impl EstimatorState {
         rot: na::UnitQuaternion<f32>,
         settings: &EstimatorSettings,
     ) -> bool {
-        settings.layer_frames && {
-            self.layered_frames
-                .last()
-                .map(|(f, _)| {
-                    let (op, or) = self.poses[*f];
-                    (op - pos).magnitude() > 0.1
-                        || rot.angle_to(&or) > settings.layer_angle_delta.to_radians()
-                })
-                .unwrap_or(true)
-        }
+        settings.layer_frames
     }
 
     fn push_pose(
@@ -397,7 +386,7 @@ impl TrackingState {
                         };
 
                         let mut cnt = 0;
-                        while estimator_state.layered_frames.len() > est_settings.keep_frames
+                        while estimator_state.layered_frames.len() >= est_settings.keep_frames
                             && cnt < 20
                         {
                             estimator_state.remove_least_significant_frame();
@@ -456,7 +445,7 @@ impl Default for TrackingSettings {
     fn default() -> Self {
         Self {
             settings: vec![],
-            camera: StandardCamera::new(39.6, 39.6 * 9.0 / 16.0),
+            camera: StandardCamera::new(16.0 / 9.0, 39.6 * 9.0 / 16.0),
             realtime_processing: false,
             decoder_properties: Default::default(),
         }

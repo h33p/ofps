@@ -147,7 +147,7 @@ impl CameraController {
         );
 
         uniform.update_projection(
-            StandardCamera::new(self.fov_y * aspect, self.fov_y).as_matrix(),
+            StandardCamera::new(aspect, self.fov_y).as_matrix(),
             self.focus_point + dir * self.dist,
             self.rot,
         );
