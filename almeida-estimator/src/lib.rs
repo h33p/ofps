@@ -212,7 +212,7 @@ fn solve_ypr_ransac(
     let rng = &mut rand::thread_rng();
 
     for _ in 0..num_iters {
-        let samples = field.choose_multiple(rng, 4).copied().collect::<Vec<_>>();
+        let samples = field.choose_multiple(rng, 3).copied().collect::<Vec<_>>();
 
         let fit = solve_ypr_given(&samples, camera);
 
@@ -243,7 +243,11 @@ fn solve_ypr_ransac(
         }
     }
 
-    solve_ypr_given(&best_inliers, camera)
+    if best_inliers.len() >= 3 {
+        solve_ypr_given(&best_inliers, camera)
+    } else {
+        Default::default()
+    }
 }
 
 #[cfg(test)]

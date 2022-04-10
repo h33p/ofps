@@ -29,6 +29,14 @@
     urlcolor=black
 }
 
+
+\usepackage{listings}
+\lstset{
+	basicstyle=\small\ttfamily,
+	columns=flexible,
+	breaklines=true
+}
+
 \usepackage{pgfplots}
 \usepgfplotslibrary{fillbetween}
 \usetikzlibrary{plotmarks}
@@ -73,7 +81,7 @@
 
 \section*{Abstract}
 
-Tracking camera motion is an important task in many industries, including film, augmented reality and robotics. Detecting whenever there is motion in video is important for various other tasks, such as reducing the amount of storage used by CCTV cameras. In both of these cases, motion is extracted from video and is then processed. One, widely used method to describe motion is called optical flow. However, it is typically computationally expensive to calculate. MPEG's H.264 and other video compression standards coincidentally happen to encode motion in order to minimise new pixel data needed across consecutive frames. The aforementioned codec is often hardware accelerated on commodity hardware, meaning it could be possible to build an efficient optical flow pipeline and perform motion detection and tracking tasks at low cost. However, these optical flow fields are very noisy due to video encoders prioritising storage efficiency over motion accuracy. This project analyses how useful MPEG motion vectors are for motion detection and tracking tasks, compared to other industry standard methods, proposes a general framework for processing optical flow fields dubbed "OFPS", as well as an accompanying app that is able to perform motion detection and tracking tasks alongside a custom 3D renderer that is able to visualise tracking results.
+Tracking camera motion is an important task in many industries, including film, augmented reality and robotics. Detecting whenever there is motion in video is important for various other tasks, such as reducing the amount of storage used by CCTV cameras. In both of these cases, motion is extracted from video and is then processed. One, widely used method to describe motion is called optical flow. However, it is typically computationally expensive to calculate. MPEG's H.264 and other video compression standards coincidentally happen to encode motion in order to minimise new pixel data needed across consecutive frames. The aforementioned codec is often hardware accelerated on commodity hardware, meaning it could be possible to build an efficient optical flow pipeline and perform motion detection and tracking tasks at low cost. However, these optical flow fields are very noisy due to video encoders prioritising storage efficiency over motion accuracy. This project analyses how useful MPEG motion vectors are for motion detection and tracking tasks, compared to other industry standard methods, proposes a general framework for processing optical flow fields dubbed "OFPS", as well as an accompanying app that is able to perform motion detection and tracking tasks alongside a custom 3D renderer that is used to visualise tracking results.
 
 \tableofcontents
 
@@ -106,7 +114,7 @@ Moving Picture Experts Group (MPEG) have designed a number of video encoding sta
 
 \begin{figure}[!ht]
 	\centering
-	\includegraphics[width=190pt]{docs/report/mpeg-mvecs.jpg}
+	\includegraphics[width=250pt]{docs/report/mpeg-mvecs.jpg}
 	\caption{\centering Still frame reference and noisy optical flow from MPEG motion vectors.}
 \end{figure}
 
@@ -126,7 +134,7 @@ There is recent work on creating visual odometry from dense optical flow fields\
 
 \begin{figure}[!ht]
 	\centering
-	\includegraphics[width=190pt]{docs/report/mpeg-maskflownet.jpg}
+	\includegraphics[width=250pt]{docs/report/mpeg-maskflownet.jpg}
 	\caption{\centering Optical flow from MaskFlowNet (above) compared to MPEG motion vectors (below).}
 \end{figure}
 
@@ -196,7 +204,7 @@ An interesting experiment can be done to visualise how MPEG works by intentional
 		\includegraphics[width=230pt]{docs/report/mosh-to.jpg}
 		\caption{\centering Image the video was moshed with.}
 	\end{subfigure}
-	\caption{\centering Result of datamoshing. This is a single frame taken after several panning motions. The results can be reproduced using the provided script in the project's repository. Run scripts/mosh.sh and pass input video file together with image to mosh into the video. The script only supports 1080p video.}
+	\caption{\centering Result of datamoshing. This is a single frame taken after several panning motions. The results can be reproduced using the provided script in the project's repository. Run \texttt{scripts/mosh.sh} and pass input video file together with image to mosh into the video. The script only supports 1080p video.}
 \end{figure}
 
 \section{Pinhole camera model}
@@ -303,7 +311,7 @@ OFPS is the core library of the project. It contains everything needed for the u
 
 \subsection{Pinhole camera}
 
-We define a standard pinhole camera model. The key design decision was to make resolution information unnecessary when processing optical flow, thus pixel coordinates are normalised in $[0; 1]$ range and the principal point\footnote{Point of the aperature} is at $(0.5; 0.5)$. Effectively all images are stretched to have square aspect ratio. This is a similar concept to anamorphic lenses - film industry often uses special lenses that have a higher horizontal field of view by bending the incoming light more horizontally than vertically. The frame then needs to be stretched out in post-production. Our pinhole camera model essentially does the same - vertical and horizontal fields of view are independent, which is equivalent to having differing focal lengths. Any processing algorithm then uses these intrinsic parameters instead of video resolution to process the motion vectors.
+We define a standard pinhole camera model. The key design decision was to make resolution information unnecessary when processing optical flow, thus pixel coordinates are normalised in $[0; 1]$ range, with top left corner being the origin, because that is standard practice for image coordinates, and the principal point is at $(0.5; 0.5)$. Effectively all images are stretched to have square aspect ratio. This is a similar concept to anamorphic lenses - film industry often uses special lenses that have a higher horizontal field of view by bending the incoming light more horizontally than vertically. The frame then needs to be stretched out in post-production. Our pinhole camera model essentially does the same - vertical and horizontal fields of view are dependent on the aspect ratio, which is equivalent to having differing focal lengths. Any processing algorithm then uses these intrinsic parameters instead of video resolution to process the motion vectors.
 
 \subsection{Interface design}
 
@@ -361,7 +369,7 @@ Gunnar-Farneback algorithm calculates a semi-dense optical flow, meaning most of
 
 \subsubsection{RLOF}
 
-Robust Local Optical Flow is a newer optical flow computation method. We implemented it, because while Gunnar-Farneback is way more documented, RLOF appears to be more accurate than Gunnar-Farneback's algorithm. This algorithm can be toggled through the properties system.
+Robust Local Optical Flow is a newer optical flow computation method. We implemented it, because while Gunnar-Farneback is way more documented, RLOF appears to be more accurate than Gunnar-Farneback's algorithm (see figure 3.2). This algorithm can be toggled through the properties system.
 
 \begin{figure}[!ht]
 	\centering
@@ -379,7 +387,7 @@ Several 3D motion estimation modules were developed. They are split into separat
 
 \subsection{Modified Almeida estimator}
 
-We implement the method proposed by Almeida et al. that finds the best-fit affine model to estimate camera motion by using least squares method\cite{almeida}. The crate of the implementation was named almeida-estimator. We modify their paper to suit it to our problem and to introduce several improvements to the algorithm. This method only produces rotation and zoom information - no 3D position changes. Since the Estimator trait requires prior knowlege of camera intrinsics, we will remove computation of lens zoom. However, Estimator's rotation output must be absolute and the proposed algorithm does not produce such values. We solve this issue by modeling our own panning, tilting and rolling prototypes, that are computed using camera intrinsics. The prototypes are essentially discrete derivatives of rotation by some angle $\epsilon$, and in the implementation it was set to 0.1 degrees.
+We implement the method proposed by Almeida et al. that finds the best-fit affine model to estimate camera motion by using least squares method\cite{almeida}. The crate of the implementation was named almeida-estimator. We modify their paper to suit it to our problem and to introduce several improvements to the algorithm. This method only produces rotation and zoom information - no 3D position changes. Since the Estimator trait requires prior knowlege of camera intrinsics, we will remove computation of lens zoom. However, Estimator's rotation output must be absolute and the proposed algorithm does not produce such values. We solve this issue by modeling our own panning, tilting and rolling prototypes, that are computed using camera intrinsics. The prototypes are essentially discrete derivatives of rotation by some angle $\epsilon$, and in the implementation it was set to 0.001 degrees.
 
 \subsubsection{RANSAC}
 
@@ -403,7 +411,7 @@ Our RANSAC implementation is further modified to improve runtime performance, co
 
 \subsubsection{Iterative optimisation}
 
-We further improved the accuracy of the final estimate by iteratively applying the least squares fitting method until convergence (or iteration limit). This is a process similar to gradient descent, which is known in machine learning field. Every iteration we compute the model and take a fraction $\alpha$ of it to prevent overshooting (except for the final iteration when we ignore $\alpha$). The estimated rotation $q_i$ is applied on the inlier set - starting points get moved by the estimate and motion vectors get subtracted by it. $q_i$ is then applied on cumulative rotation: $q = q * q_i$. In the end, $q = q_0 * q_1 * \cdots * q_n$.
+We further improved the accuracy of the model by iteratively applying the least squares fitting method until convergence (or iteration limit). This is a process similar to gradient descent, which is known in machine learning field. Every iteration we compute the model and take a fraction $\alpha$ of it to prevent overshooting (except for the final iteration when we set $\alpha = 1$). The inverse of the estimated rotation $q_i$ is applied on the fitted points - starting points get moved by the estimate's inverse and motion vectors get subtracted by it. $q_i$ is then applied on cumulative rotation: $q = q * q_i$. In the end, $q = q_0 * q_1 * \cdots * q_n$.
 
 \begin{figure}[!ht]
 	\centering
@@ -632,7 +640,7 @@ Motion tracking is a more complex application that allows the user to create pan
 
 \subsubsection{Interface}
 
-Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical and horizontal fields of view. Any number of estimators may be added and each of them can be configured with general properties and ones specific to the estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section, and the camera can be orbitted around center of focus using the left mouse button, zoomed in and out with the scroll wheel, as well as panned with the mouse while holding the shift key.
+Loading the decoder is done the same way as in the motion detection app, but it will start the decoding process immediately after creation. A few camera intrinsics need to be known for the estimation to work correctly, more specifically - vertical field of view and aspect ratio. Any number of estimators may be added and each of them can be configured with general properties and ones specific to the estimator, such as accuracy parameters, used algorithm, etc. 3D view displays some of the estimated frames (it is possible to specify the number of frames drawn, however, too many of them may lead to out-of-memory scenarios). This view was built using a custom 3D renderer, which is described in the next section, and the camera can be orbitted around center of focus using the left mouse button, zoomed in and out with the scroll wheel, as well as panned with the mouse while holding the shift key.
 
 \begin{figure}[!ht]
 	\centering
@@ -779,7 +787,7 @@ All materials, textures and meshes are being stored in deduplicated reference co
 
 GPUs are parallel processing devices that incur heavy latency in sequential calls, thus one of the biggest bottlenecks in older graphics engines is the number of draw calls being issued. Modern rendering engines solve this by using a technique called instancing. Recent graphics APIs provide a way to draw a list of identical meshes using slightly different per-instance parameters, hence the name instancing. Given a list of objects our renderer partitions the objects in a way that minimises the number of draw calls being issued. Each instanced batch depends on the rendering pipeline being used (shaders of the material), textures being bound, and the mesh. The final per-instance parameters, such as object's transformation matrix and colour are then being provided as a list in a single instanced draw call.
 
-\subsection{Additional rendering}
+\subsection{RenderSubState}
 
 The previous subsections only described the process of drawing 3D objects onto the scene, however, user interface needs to be drawn as well. This is done in the form of additional render passes. Once 3D objects are drawn, egui, or other rendering engine can layer their drawing operations on top. This is enabled through the RenderSubState trait. The trait accepts input, pre-render and on-render events which allow to drive custom app logic and perform custom rendering operations. OFPS suite makes use of this trait to draw its GUI on top.
 
@@ -829,19 +837,19 @@ In order to test motion detection effectiveness, we placed the Raspberry Pi with
 
 In order to test the estimators a large number of tests were conducted using different video files, optical flow computation methods, and estimator configurations. This section briefly explains the configuration and evaluates results collected in those configurations.
 
-In total, 192 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution). We picked such low resolution, because epipolar geometry based estimators could not handle that many motion vectors.
+In total, 192 comparisons were made. 8 estimator configurations were compared - 2 per each estimator type. 8 different 3D rendered videos were created in Blender, and performance of each estimator was compared against the ground truth data extracted from the camera's animation. All clips performed the exact same motions, in the given sequence: panning, tilting, combined panning and tilting, rolling, and all 3 axis combined. The only difference between the clips is the environment - there are 4 different backgrounds of decreasing level of detail, which should lead to less accurate optical flows, and each of them has a static and dynamic version. Dynamic version adds moving spheres and the idea behind that was to test how well each estimator deals with presence of outliers. Multiple runs of estimation were performed using 3 different optical flow generation methods: MPEG, Farneback and RLOF (both at fixed 150x84 resolution). We picked such low resolution, because epipolar geometry based estimators could not handle that many motion vectors. Samples used and estimator configurations are available in Appendix B.
 
 We attempted to track translational movement of the camera as well, but the performance of libmv and multiview estimators was unsuitable for analysis. Even using prior knowlege of the video to normalise estimated translation vectors did not yield accurate results (see figure 4.1). Thus, we decided against testing that.
 
 \begin{figure}[!ht]
 	\centering
-	\includegraphics[width=150pt]{docs/report/translation.jpg}
+	\includegraphics[width=200pt]{docs/report/translation.jpg}
 	\caption{\centering Noisy translation estimation with libmv estimator.}
 \end{figure}
 
 \subsection{Runtime Performance}
 
-Figure 4.2 plots average performance of each estimator under different optical flow decoders. These results have been averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logaritmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In all cases, the fastest estimator is Homography-RANSAC. Almeida and Homography based estimators are able to process at least 30 frames per second, while epipolar geometry based estimators are not usable at all in realtime scenarios. Let us see now how accurate the results are.
+Figure 4.2 plots average performance of each estimator under different optical flow decoders. Estimators were run in parallel on each clip using an AMD Ryzen 9 3950X CPU, and these results were averaged over all 8 sample videos. Due to large differences in processing time across estimators, these results are plotted in logaritmic scale, however, the overall trend of the runtime performance is rather clear. Almeida and homography estimators are reasonably lightweight in most conditions, and can easily handle over 10000 motion vectors produced by OpenCV based decoders each frame. However, epipolar geometry based estimators are not able to handle that many data points, thus, their runtime performance suffers. In all cases, the fastest estimator is Homography-RANSAC. Almeida and Homography based estimators are able to process at least 30 frames per second, while epipolar geometry based estimators are not usable at all in realtime scenarios. Let us see now how accurate the results are.
 
 \begin{figure}[!ht]
 \begin{center}
@@ -917,11 +925,11 @@ The next few graphs compare average accuracy of the estimator in different envir
 				\vidpic{vid4dyn.jpg},
 			},
 			every axis x label/.style={
-				at={(0.5,-0.2)},
+				at={(0.5,-0.3)},
 				anchor=center,
 			},
 			width = \textwidth,
-			height = 0.5\textwidth,
+			height = 0.4\textwidth,
 			legend cell align=left,
 			legend columns=2,
 			legend pos = north west
@@ -968,11 +976,11 @@ Figure 4.4 shows very similar relative performance when using OpenCV's base Gunn
 				\vidpic{vid4dyn.jpg},
 			},
 			every axis x label/.style={
-				at={(0.5,-0.2)},
+				at={(0.5,-0.3)},
 				anchor=center,
 			},
 			width = \textwidth,
-			height = 0.5\textwidth,
+			height = 0.4\textwidth,
 			legend cell align=left,
 			legend columns=2,
 			legend pos = north west
@@ -1005,7 +1013,7 @@ Optical flows produced by RLOF appear to have consistent quality throughout the 
 	\begin{axis}[
 			xlabel = {Video clip},
 			ylabel = {Average error (degrees)},
-			ymax = 0.4,
+			ymax = 0.45,
 			symbolic x coords={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
 			xtick={1,1dyn,2,2dyn,3,3dyn,4,4dyn},
 			xticklabels = {
@@ -1019,11 +1027,11 @@ Optical flows produced by RLOF appear to have consistent quality throughout the 
 				\vidpic{vid4dyn.jpg},
 			},
 			every axis x label/.style={
-				at={(0.5,-0.2)},
+				at={(0.5,-0.25)},
 				anchor=center,
 			},
 			width = \textwidth,
-			height = 0.5\textwidth,
+			height = 0.45\textwidth,
 			legend cell align=left,
 			legend columns=2,
 			legend pos = north west
@@ -1094,9 +1102,9 @@ Given Almeida-RANSAC is the most accurate estimator, figure 4.6 compares the per
 
 \subsection{Real-world data}
 
-The leading estimator was tested against real world clips as well, where a stationary camera pans around the scene. Modified almeida estimator was able to track camera motion relatively accurately (around 1 degree error for panning motion) and panorama view got created with sufficient contrast in the scene (see figure 3.11).
+The leading estimator was tested against real world clips as well, with a stationary camera panning around the scenes. Given clips with sufficient contrast, modified almeida estimator is able to track camera motion relatively accurately (around 1 degree error for panning motion) and panorama view gets created (see figure 3.11). Some clips contain parts without accurate motion vectors (usually due to low contrast), in such cases the estimator produces incorrect estimates. All samples are available in Appendix B.
 
-\newpage
+%\newpage
 
 \section{OFPS}
 
@@ -1143,7 +1151,7 @@ while let Ok(_) = decoder.process_frame(&mut mv, None, 0) {
 }
 \end{minted}
 
-OFPS core library has been fully documented, each plugin has a description, and this documentation can be viewed using "cargo doc --open" command.
+OFPS core library has been fully documented, each plugin has a description, and this documentation can be viewed using \texttt{cargo doc --open} command. In addition, several miscelaneous utilities are available in the repository for optical flow extraction.
 
 \chapter{Conclusion}
 
@@ -1161,8 +1169,78 @@ In addition, it would be interesting to look at other video encoding standards. 
 
 We were unable to track camera's translational motion using optical flow methods. Given more time, we could have attempted to develop a more robust solution. One possible solution would be to compute the trifocal tensor\cite{hartley_zisserman_2004}. Another way would be to reconstruct 3D position of the inliers and attempt aligning them with the previous frame, which is a very similar approach to the one employed by VOLDOR, however, it is still uncertain whether any of these solutions would work.
 
-It was very surprising to see how well the modified Almeida estimator performed, compared to other proven methods. Building a model that does not go beyond the constraints imposed by the problem appears to be highly beneficial, and while other estimators have more degrees of freedom, their accuracy suffers in simpler cases. In addition, estimation being more accurate in presence of outliers surprised us even more. We inspected the motion vectors of 2 final video files in ffplay\footnote{Run "ffplay -flags2 e+export\_mvs -vf codecview=mv=pf+bb <input\_video>"} and were able to notice the dynamic version encoding motion in a more complex manner, while the static version would often take shortcuts. Finally, the modularity of our optical flow processing stack opens possibilities to conduct further research in this field with less friction.
+It was very surprising to see how well the modified Almeida estimator performed, compared to other proven methods. Building a model that does not go beyond the constraints imposed by the problem appears to be highly beneficial, and while other estimators have more degrees of freedom, their accuracy suffers in simpler cases. In addition, estimation being more accurate in presence of outliers surprised us even more. We inspected the motion vectors of 2 final video files in ffplay\footnote{Run \texttt{ffplay -flags2 e+export\_mvs -vf codecview=mv=pf+bb <input\_video>}} and were able to notice the dynamic version encoding motion in a more complex manner, while the static version would often take shortcuts. Finally, the modularity of our optical flow processing stack opens possibilities to conduct further research in this field with less friction.
 
 \printbibliography
+
+\newpage
+
+\chapter*{Appendix A}
+
+\input{docs/setup.tex}
+
+\newpage
+
+\chapter*{Appendix B}
+
+\section*{Example configurations}
+
+Download core samples from Google Drive\footnote{https://drive.google.com/drive/folders/1i4sPhfbvCzV6b0r5iiUEnGVXmX1XkwMq}, and extract \texttt{samples.zip}\footnote{sha256 - 0d6ce3141ef33b320a9c243389a991184927da792a274a46953ee97af9a3adee} in the project root under \texttt{samples} directory. Raw detection sample was large, thus it has been separated into \texttt{cctv.h264} file\footnote{sha256 - 9fd17d015924538c140f9ee478bdbfc5233f6c948ff134d2f31415e795da9b66}. Place it in \texttt{samples/detection} directory. Locations are important, because predefined configs reference paths relative to current working directory.
+
+\subsection*{Detection configurations}
+
+Load predefined configuration files from the paths given.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  Scenario from Results - \texttt{samples/scenario\_detect.json} (requires raw sample).
+\item
+  Basic motion - \texttt{samples/basic\_detect.json}.
+\item
+  Live TCP stream (webcam) - \texttt{samples/tcp\_detect.json}.
+\end{enumerate}
+
+For V4L webcam through TCP, first run the following command in another terminal:
+
+\begin{lstlisting}
+ffmpeg -i /dev/video1 -c:v libx264 -r 30 -preset ultrafast -tune zerolatency -x264-params "" -f mpegts tcp://0.0.0.0:3333\?listen
+\end{lstlisting}
+
+Adjust \texttt{/dev/video1} to correct V4L device. The command needs to be re-run after each connection instance.
+
+\subsection*{Tracking configurations}
+
+Load predefined configuration files from the paths given.
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  Synthetic videos, all estimators, ground truth comparisons - \texttt{samples/synthetic\_all\_gt.json}.
+\item
+  Synthetic videos, single estimator, ground truth - \texttt{samples/synthetic\_almeida\_gt.json}.
+\item
+  Real-world videos - \texttt{samples/real\_world.json}.
+\item
+  Real-world videos (cropped, slowmo) - \texttt{samples/real\_world\_crop.json}.
+\item
+  Live TCP stream (webcam) - \texttt{samples/tcp\_track.json}.
+\end{enumerate}
+
+The preloaded samples can be replaced with different ones. See \texttt{samples/synthetic} and \texttt{samples/real\_world} directories. Cropped config is needed to account for 1.2x sensor crop applied on slow motion video.
+
+For TCP configuration, refer to the previous subsection for setup steps. In addition, camera's horizontal and vertical field of view must be set correctly for tracking to be accurate.
+
+\chapter*{Appendix C}
+
+\section*{Preparing video clips}
+
+If custom clips are to be loaded, there may be some edge cases and incompatibilities leading to errors. Transcode them first using ffmpeg:
+
+\begin{lstlisting}
+ffmpeg -i input.mp4 -c:v libx264 -preset ultrafast -tune zerolatency -x264-params "" -bf 0 -g 999999 output.mkv
+\end{lstlisting}
+
+This will also reduce the number of I-frames to a minimum.
 
 \end{document}

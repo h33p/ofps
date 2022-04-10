@@ -31,7 +31,7 @@ sudo dnf -y install https://download1.rpmfusion.org/free/fedora/rpmfusion-free-r
 sudo dnf install gtk3-devel clang clang-devel opencv-devel ffmpeg-devel
 ```
 
-Windows:
+Windows/macOS:
 
 Good luck :)
 
