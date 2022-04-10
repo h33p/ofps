@@ -17,13 +17,17 @@ fn main() {
 
     let mut builder = cc::Build::new();
 
-    let build = builder.cpp(true).files(src.iter()).include("libmv/src/");
-
-    if let Ok(true) = build.is_flag_supported("-isystem libmv/src/third_party/eigen") {
-        build.flag_if_supported("-isystem libmv/src/third_party/eigen");
-    } else {
-        build.include("libmv/src/third_party/eigen");
-    }
+    // Disable warnings coming from eigen
+    let build = builder
+        .cpp(true)
+        .files(src.iter())
+        .include("libmv/src/")
+        .include("libmv/src/third_party/eigen")
+        .flag_if_supported("-Wno-deprecated-declarations")
+        .flag_if_supported("-Wno-ignored-attributes")
+        .flag_if_supported("-Wno-int-in-bool-context")
+        .flag_if_supported("-Wno-deprecated-copy")
+        .flag_if_supported("-Wno-misleading-indentation");
 
     build.compile("libmv-c");
 
