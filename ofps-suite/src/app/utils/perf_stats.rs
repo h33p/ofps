@@ -2,7 +2,7 @@ use super::ui_misc::jlabel;
 use egui::*;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use widgets::plot::{Arrows, Bar, BarChart, Line, LinkedAxisGroup, Plot, Value, Values};
+use widgets::plot::{Line, Plot, Value, Values};
 
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 pub struct DrawPerfStats {
@@ -49,7 +49,7 @@ pub fn perf_stats_windows<
             ScrollArea::vertical()
                 .auto_shrink([true, true])
                 .show(ui, |ui| {
-                    Grid::new(format!("performance_ui"))
+                    Grid::new("performance_ui".to_string())
                         .min_col_width(ui.spacing().interact_size.x + 25.0)
                         .show(ui, |ui| {
                             jlabel(ui, "Part");

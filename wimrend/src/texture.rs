@@ -269,7 +269,7 @@ impl Texture {
         let raw = RawTexture::from_rgba_frame(device, queue, label, rgba, height)?;
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
+            layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,

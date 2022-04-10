@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Result};
 use nalgebra as na;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 
 pub trait AsMutPtr {
@@ -93,7 +93,7 @@ pub fn open_file(input: &str) -> Result<Box<dyn Read + Send>> {
     if input.starts_with("tcp://") {
         let input = input.strip_prefix("tcp://").expect("Cannot strip prefix");
         let (addr, port) = input
-            .split_once(":")
+            .split_once(':')
             .ok_or_else(|| anyhow!("Invalid format"))?;
         let port: usize = str::parse(port)?;
 

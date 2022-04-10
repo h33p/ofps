@@ -46,8 +46,8 @@ impl<T: Read> Decoder for MvecFile<T> {
     fn process_frame(
         &mut self,
         field: &mut MotionVectors,
-        out_frame: Option<(&mut Vec<RGBA>, &mut usize)>,
-        skip_frames: usize,
+        _: Option<(&mut Vec<RGBA>, &mut usize)>,
+        _: usize,
     ) -> Result<bool> {
         let mut vecs = [0u8; std::mem::size_of::<u32>()];
         self.reader.read_exact(&mut vecs)?;

@@ -1,3 +1,6 @@
+# The following script extracts camera motion from a blender scene.
+# This data can then be loaded into OFPS Suite for comparisons.
+
 import bpy, os
 import mathutils
 import math

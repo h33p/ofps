@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let mut motion_vectors = vec![];
     let mut out = BufWriter::new(out);
 
-    while let Ok(_) = c.process_frame(&mut motion_vectors, None, 0) {
+    while c.process_frame(&mut motion_vectors, None, 0).is_ok() {
         // First encode number of MVs in a 32-bit LE integer.
         out.write_all(&(motion_vectors.len() as u32).to_le_bytes())?;
         // Then write each MV as a 4 f32 groups (in LE).

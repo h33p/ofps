@@ -112,26 +112,6 @@ impl MotionField {
             )
         })
     }
-
-    fn gaussian_blur(&mut self, size: usize) {
-        assert_eq!(size % 2, 1, "size must be odd!");
-
-        let mean = size as f32 / 2.0;
-        // Approximate sigma.
-        let sigma = mean / 3.0;
-        let mat = DVector::from_iterator(
-            size,
-            (0..size).map(|i| mean - i as f32).map(|i| {
-                1.0 / (sigma * (std::f32::consts::PI * 2.0).sqrt())
-                    * (-0.5 * (i / sigma) * (i / sigma)).exp()
-            }),
-        );
-        let mut mat = self.vf.clone();
-        let (w, h) = self.dim();
-        for y in 0..h {
-            for x in 0..w {}
-        }
-    }
 }
 
 /// Densify arbitrary number of motion vectors.
@@ -161,10 +141,9 @@ impl MotionFieldDensifier {
     fn add_vector_idx(&mut self, idx: usize, motion: Vector2<f32>, weight: f32) {
         self.counts[(0, idx)] += weight;
         self.counts[(1, idx)] += weight;
-        self.mf.vf.set_column(
-            idx,
-            &(Matrix2x1::from(motion) * weight + self.mf.vf.column(idx)),
-        );
+        self.mf
+            .vf
+            .set_column(idx, &(motion * weight + self.mf.vf.column(idx)));
     }
 
     /// Add a motion vector at specified motion field coordinates
@@ -258,21 +237,14 @@ impl MotionFieldDensifier {
                 idx: i,
                 neighbors: -calc_counts(self, i),
             })
-            //.collect::<std::collections::VecDeque<_>>();
             .collect::<std::collections::BTreeSet<_>>();
-
-        println!("{} {}", queue.len(), self.mf.size());
 
         // Special case when there are no motion vectors at all
         if queue.len() == self.mf.size() {
             return Ok(());
-            //return Err("No motion vectors!".into())
         }
 
-        //queue.make_contiguous().sort();
-
         while let Some(cell) = queue.take(&queue.iter().copied().next().unwrap_or_default()) {
-            //c += 1;
             let i = cell.idx;
 
             let (x, y) = (i % width, i / width);
@@ -288,11 +260,7 @@ impl MotionFieldDensifier {
                     if cnt > 0.1 {
                         let scale = 1.0 - ((ox * ox + oy * oy) as f32).sqrt() * 0.5;
                         let inv_cnt = 1.0 / cnt;
-                        self.add_vector_idx(
-                            i,
-                            (scale * inv_cnt * self.mf.vf.column(idx)).into(),
-                            scale, // * 2.0,
-                        );
+                        self.add_vector_idx(i, scale * inv_cnt * self.mf.vf.column(idx), scale);
                         added = true;
                     }
                 }
@@ -300,7 +268,6 @@ impl MotionFieldDensifier {
 
             if !added {
                 queue.insert(cell);
-                panic!("Uh oh");
             } else {
                 // Recalculate all neighbor weights if we interpolate self
                 for (ox, oy) in neighbors {
@@ -316,14 +283,12 @@ impl MotionFieldDensifier {
                             neighbor.neighbors -= 1;
                             queue.insert(neighbor);
                         } else if cnt != 0 && self.counts[(0, idx)] < 0.1 {
-                            unreachable!("UH OH {} {}", idx, cnt);
+                            unreachable!("{} {}", idx, cnt);
                         }
                     }
                 }
             }
         }
-
-        println!("POST: {}", queue.len());
 
         Ok(())
     }

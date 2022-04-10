@@ -5,11 +5,8 @@
 
 use nalgebra as na;
 use ofps::prelude::v1::*;
-use opencv::calib3d::{
-    decompose_homography_mat, find_homography_ext, recover_pose_estimated, LMEDS, RANSAC,
-};
+use opencv::calib3d::{decompose_homography_mat, find_homography_ext, LMEDS, RANSAC};
 use opencv::core::*;
-use std::collections::BTreeMap;
 
 ofps::define_descriptor!(homography, Estimator, |_| Ok(Box::new(
     HomographyEstimator::default()
@@ -89,12 +86,10 @@ impl HomographyEstimator {
             p2.push(Point2f::new(e.x, e.y));
         }
 
-        let mut p1 = Mat::from_slice(&*p1)?;
-        let mut p2 = Mat::from_slice(&*p2)?;
+        let p1 = Mat::from_slice(&*p1)?;
+        let p2 = Mat::from_slice(&*p2)?;
 
         let cam_matrix = camera.intrinsics();
-
-        //println!("{:?}", cam_matrix);
 
         let cam_matrix = cam_matrix.transpose();
         let cam_matrix = na::Matrix3::from_iterator(cam_matrix.into_iter().map(|v| *v as f64));
@@ -104,8 +99,6 @@ impl HomographyEstimator {
             cam_matrix.column(1).as_slice(),
             cam_matrix.column(2).as_slice(),
         ])?;
-
-        //println!("{:?}", cam_matrix);
 
         let mut inliers = Mat::default();
 
@@ -130,7 +123,7 @@ impl Estimator for HomographyEstimator {
         &mut self,
         motion_vectors: &[MotionEntry],
         camera: &StandardCamera,
-        move_magnitude: Option<f32>,
+        _: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
         let (h, _, _, cam_matrix, _) = self.homography(motion_vectors.iter().copied(), camera)?;
 
@@ -138,9 +131,9 @@ impl Estimator for HomographyEstimator {
         let mut t: Vector<Mat> = Default::default();
         let mut n: Vector<Mat> = Default::default();
 
-        let sols = decompose_homography_mat(&h, &cam_matrix, &mut r, &mut t, &mut n)?;
+        decompose_homography_mat(&h, &cam_matrix, &mut r, &mut t, &mut n)?;
 
-        let (r, m) = r
+        let (r, _) = r
             .iter()
             .zip(t.iter())
             .fold(None, |cr, (r, t)| {
@@ -159,11 +152,6 @@ impl Estimator for HomographyEstimator {
         let r = na::UnitQuaternion::from_matrix(&r).inverse();
         let (x, z, y) = r.euler_angles();
         let r = na::UnitQuaternion::from_euler_angles(x * -1.0, y * -1.0, z);
-
-        /*let r = na::UnitQuaternion::from_quaternion(na::Quaternion::new(
-            r.coords.w, r.coords.x, r.coords.z * -1.0, r.coords.y,
-        ));*/
-
         Ok((r, Default::default()))
     }
 }

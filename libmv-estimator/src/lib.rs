@@ -167,9 +167,9 @@ impl Estimator for LibmvEstimator {
         &mut self,
         motion_vectors: &[MotionEntry],
         camera: &StandardCamera,
-        move_magnitude: Option<f32>,
+        _: Option<f32>,
     ) -> Result<(na::UnitQuaternion<f32>, na::Vector3<f32>)> {
-        let (err, f, inliers) = fundamental(
+        let (_, f, inliers) = fundamental(
             motion_vectors.iter().copied(),
             self.outlier_proba as _,
             self.max_error as _,
@@ -216,6 +216,7 @@ impl Estimator for LibmvEstimator {
             // prev motion, and either a) add motions together or b) calculate new motion that ends
             // at current endpoint.
 
+            #[allow(clippy::needless_collect)]
             let mv = motion_vectors
                 .iter()
                 .filter_map(|&me| {
@@ -231,7 +232,7 @@ impl Estimator for LibmvEstimator {
             if tm == 0.0 {
                 0.0
             } else {
-                let (err, f, inliers) = fundamental(
+                let (_, f, inliers) = fundamental(
                     prev_motion.mv_iter(),
                     self.outlier_proba as _,
                     self.max_error as _,
@@ -247,21 +248,15 @@ impl Estimator for LibmvEstimator {
                 let x1 = na::Point2::new(point.0.x as _, point.0.y as _);
                 let x2 = x1 + na::Vector2::new(point.1.x as _, point.1.y as _);
 
-                let (r2, t2) =
+                let (_, t2) =
                     libmv::multiview::fundamental::motion_from_essential_and_correspondence(
                         e, k, x1, k, x2,
                     )
                     .ok_or_else(|| anyhow!("failed to extract secondary motion"))?;
 
-                //let r2 = na::Matrix3::from_iterator(r2.into_iter().map(|v| *v as _));
                 let t13 = na::Vector3::from_iterator(t2.into_iter().map(|v| *v as f32));
 
                 let t23 = prev_motion.rot * t;
-
-                //TODO: compare rotation estimates to calc error.
-                //let r2 = na::UnitQuaternion::from_matrix(&r2);
-                //let (x, z, y) = r.euler_angles();
-                //let r2 = na::UnitQuaternion::from_euler_angles(x, y, z);
 
                 let scale = ofps::utils::triangulate_scale(prev_motion.tr, t23, t13);
 
@@ -343,10 +338,6 @@ mod tests {
 
     #[test]
     fn test_rotation() {
-        if true {
-            return;
-        }
-
         const ROT: f32 = 1.0;
 
         let angles = [
@@ -362,32 +353,23 @@ mod tests {
 
         let camera = StandardCamera::new(1.0, 170.0);
 
-        let mut grid = get_grid(50, 50, &camera);
+        let grid = get_grid(50, 50, &camera);
 
         for rot in angles.iter().map(|&(r, p, y)| {
             na::UnitQuaternion::from_euler_angles(r.to_radians(), p.to_radians(), y.to_radians())
         }) {
-            println!("NEWWWWWWWWWW::::");
-            println!("ROT: {:?}", rot.euler_angles());
             for _ in 0..1 {
-                println!("ITER");
                 let p1 = project_grid(
                     &grid,
                     &camera,
                     calc_view(Default::default(), Default::default()),
                 );
-                //println!("{:?}", p1);
                 let p2 = project_grid(&grid, &camera, calc_view(rot, Default::default()));
-                //println!("{:?}", p2);
 
                 let field = calc_field(p1, p2);
 
                 let mut estimator = LibmvEstimator::default();
                 let (r, tr) = estimator.estimate(&field, &camera, None).unwrap();
-
-                println!("ROTATION: {:?}", r.euler_angles());
-                println!("DELTA: {:?}", rot.angle_to(&r).to_degrees());
-                println!("TR: {:?}", tr);
             }
         }
     }

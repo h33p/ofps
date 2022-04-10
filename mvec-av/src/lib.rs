@@ -15,7 +15,7 @@ use std::mem::MaybeUninit;
 
 ofps::define_descriptor!(av, Decoder, |input| {
     let f = open_file(&input)?;
-    AvDecoder::try_new(f, (1, 1), (150, 150)).map(|d| Box::new(d) as _)
+    AvDecoder::try_new(f).map(|d| Box::new(d) as _)
 });
 
 pub struct AvBuf(&'static mut [u8]);
@@ -53,6 +53,7 @@ impl DerefMut for AvBuf {
 }
 
 pub struct AvContext<T: ?Sized> {
+    #[allow(clippy::redundant_allocation)]
     _stream: Box<Box<T>>,
     pub fmt_ctx: &'static mut AVFormatContext,
     pub avio_ctx: &'static mut AVIOContext,
@@ -155,8 +156,6 @@ pub struct AvDecoder<T: ?Sized> {
     stream_idx: i32,
     framerate: f64,
     aspect_ratio: (usize, usize),
-    aspect_ratio_scale: (usize, usize),
-    max_mfield_size: (usize, usize),
     sws_av_frame: &'static mut AVFrame,
     sws_ctx: Option<&'static mut SwsContext>,
 }
@@ -217,11 +216,7 @@ impl<'a> DerefMut for RefFrame<'a> {
 }
 
 impl<T: Read + ?Sized> AvDecoder<T> {
-    pub fn try_new(
-        stream: Box<T>,
-        aspect_ratio_scale: (usize, usize),
-        max_mfield_size: (usize, usize),
-    ) -> Result<Self> {
+    pub fn try_new(stream: Box<T>) -> Result<Self> {
         let av_ctx = AvContext::try_new(stream)?;
 
         let mut decoder: Option<&mut AVCodec> = None;
@@ -246,7 +241,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
         let stream = unsafe { (*av_ctx.fmt_ctx.streams.offset(stream_idx as _)).as_mut() }
             .ok_or_else(|| anyhow!("Stream info null"))?;
 
-        println!("{:?}", stream);
+        debug!("{:?}", stream);
 
         let framerate = if stream.avg_frame_rate.den != 0 && stream.avg_frame_rate.num != 0 {
             stream.avg_frame_rate.num as f64 / stream.avg_frame_rate.den as f64
@@ -287,12 +282,12 @@ impl<T: Read + ?Sized> AvDecoder<T> {
         let sws_av_frame = unsafe { av_frame_alloc().as_mut() }
             .ok_or_else(|| anyhow!("Unable to allocate sws frame"))?;
 
-        println!(
+        debug!(
             "{:x} {:x}",
             codec_ctx.pix_fmt as usize,
             AVPixelFormat::AV_PIX_FMT_RGBA as usize
         );
-        println!(
+        debug!(
             "{:?} {:?}",
             unsafe { av_pix_fmt_desc_get(codec_ctx.pix_fmt) },
             unsafe { av_pix_fmt_desc_get(AVPixelFormat::AV_PIX_FMT_RGBA) }
@@ -305,8 +300,6 @@ impl<T: Read + ?Sized> AvDecoder<T> {
             stream_idx,
             framerate,
             aspect_ratio: (0, 0),
-            aspect_ratio_scale,
-            max_mfield_size,
             sws_av_frame,
             sws_ctx: None,
         })
@@ -328,7 +321,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
             _ => {}
         }
 
-        if let Some(frame) = RefFrame::new(&mut self.codec_ctx, &mut self.av_frame)? {
+        if let Some(frame) = RefFrame::new(self.codec_ctx, self.av_frame)? {
             self.aspect_ratio = (frame.width as usize, frame.height as usize);
 
             if let Some((out_frame, out_height)) = out_frame {
@@ -397,7 +390,6 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                     .as_ref()
             } {
                 let size = side_data.size as usize / std::mem::size_of::<AVMotionVector>();
-                trace!("GOT MVS! {:?} {}", side_data.data, size);
                 let motion_vectors =
                     unsafe { slice::from_raw_parts(side_data.data as *const AVMotionVector, size) };
 
@@ -416,18 +408,14 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                         ))
                         .component_mul(&-frame_norm);
 
-                    //println!("{}", mv.motion_scale);
-
                     mf.push((pos, motion));
                 }
 
                 Ok(true)
             } else {
-                trace!("NO MVS :(");
                 Ok(false)
             }
         } else {
-            println!("NOPE FRAME NOPE");
             Ok(false)
         }
     }

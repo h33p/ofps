@@ -68,12 +68,7 @@ impl EstimatorState {
         (pos + old_rot * tr, rot * old_rot)
     }
 
-    fn layer_frame(
-        &self,
-        pos: na::Point3<f32>,
-        rot: na::UnitQuaternion<f32>,
-        settings: &EstimatorSettings,
-    ) -> bool {
+    fn layer_frame(&self, settings: &EstimatorSettings) -> bool {
         settings.layer_frames
     }
 
@@ -370,7 +365,7 @@ impl TrackingState {
                         }
 
                         let (pos, rot) = estimator_state.apply_pose(tr, frot);
-                        let mat = if estimator_state.layer_frame(pos, rot, est_settings) {
+                        let mat = if estimator_state.layer_frame(est_settings) {
                             if frame_height > 0 {
                                 mat.get_or_init(|| {
                                     Arc::new(Mutex::new(FrameState::Pending(
@@ -429,13 +424,15 @@ pub struct TrackingOutput {
     pub decoder_properties: Option<BTreeMap<String, Property>>,
 }
 
+pub type EstSettingsTuple = (
+    Arc<Mutex<Option<EstimatorPlugin>>>,
+    Arc<AtomicBool>,
+    EstimatorSettings,
+);
+
 #[derive(Clone)]
 pub struct TrackingSettings {
-    pub settings: Vec<(
-        Arc<Mutex<Option<EstimatorPlugin>>>,
-        Arc<AtomicBool>,
-        EstimatorSettings,
-    )>,
+    pub settings: Vec<EstSettingsTuple>,
     pub camera: StandardCamera,
     pub realtime_processing: bool,
     pub decoder_properties: BTreeMap<String, Property>,

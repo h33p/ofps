@@ -1,20 +1,11 @@
 //! OpenCV motion vector field implementation
 
-use ::core::ffi::c_void;
-use ::core::ops::{Deref, DerefMut};
-use ::core::{ptr, slice};
-use c_str_macro::c_str;
-use libc::c_int;
-use log::*;
 use nalgebra as na;
-use ofps::prelude::v1::{ptrplus::*, Result, *};
-use ofps::utils::*;
+use ofps::prelude::v1::{Result, *};
 use opencv::core::{Point2f, Size, Vec3b};
 use opencv::imgproc;
 use opencv::prelude::*;
 use opencv::videoio::*;
-use std::io::*;
-use std::mem::MaybeUninit;
 
 ofps::define_descriptor!(cv, Decoder, |args| CvDecoder::try_new(
     &args,

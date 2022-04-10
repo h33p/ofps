@@ -1,6 +1,5 @@
 //! # Camera abstraction
 
-use crate::prelude::v1::*;
 use nalgebra as na;
 
 /// Standard pinhole camera
@@ -72,25 +71,7 @@ impl StandardCamera {
     /// * `view` - camera view matrix.
     pub fn project(&self, world: na::Point3<f32>, view: na::Matrix4<f32>) -> na::Point2<f32> {
         // Transform the point back into 2D
-        let mut screen = self.proj.project_point(&view.transform_point(&world));
-
-        // Convert back from homogeneus coordinates
-        let screen = na::Point2::new(screen.x / screen.z, screen.y / screen.z);
-
-        // Transform the point back to [0; 1] range
-        (screen + na::Vector2::new(1.0, 1.0)) * 0.5
-    }
-
-    /// Project a 3D point into screen space
-    ///
-    /// This function assumes identity view matrix, and is thus faster.
-    ///
-    /// # Arguments
-    ///
-    /// * `world` - point to project.
-    pub fn project_identity(&self, world: na::Point3<f32>) -> na::Point2<f32> {
-        // Transform the point back into 2D
-        let mut screen = self.proj.project_point(&world);
+        let screen = self.proj.project_point(&view.transform_point(&world));
 
         // Convert back from homogeneus coordinates
         let screen = na::Point2::new(screen.x / screen.z, screen.y / screen.z);
@@ -203,43 +184,5 @@ impl StandardCamera {
     pub fn essential(&self, f: na::Matrix3<f32>) -> na::Matrix3<f32> {
         let k = self.intrinsics();
         k.transpose() * f * k
-    }
-
-    fn preliminary_multiview_reconstruction(
-        &self,
-        e: na::Matrix3<f32>,
-    ) -> Option<([na::Matrix3<f32>; 4], [na::Vector3<f32>; 4])> {
-        // Based on https://github.com/libmv/libmv/blob/8040c0f6fa8e03547fd4fbfdfaf6d8ffd5d1988b/src/libmv/multiview/fundamental.cc#L302-L338
-        let svd = na::linalg::SVD::new_unordered(e, true, true);
-
-        let mut u = svd.u?;
-        let mut v_t = svd.v_t?;
-
-        if u.determinant() < 0.0 {
-            u.column_mut(2).neg_mut();
-        }
-
-        if v_t.determinant() < 0.0 {
-            v_t.column_mut(2).neg_mut();
-        }
-
-        let w = na::matrix![
-            0.0, -1.0, 0.0;
-            1.0, 0.0, 0.0;
-            0.0, 0.0, 1.0
-        ];
-
-        let uwvt = u * w * v_t;
-        let uwtvt = u * w.transpose() * v_t;
-
-        Some((
-            [uwvt, uwvt, uwtvt, uwtvt],
-            [
-                u.column(2).into(),
-                (-u.column(2)).into(),
-                u.column(2).into(),
-                (-u.column(2)).into(),
-            ],
-        ))
     }
 }

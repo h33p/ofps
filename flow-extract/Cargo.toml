@@ -9,3 +9,4 @@ edition = "2021"
 ofps = { version = "0.1", path = "../ofps" }
 motion-loader = { version = "0.1", path = "../motion-loader" }
 opencv = { version = "0.62", features = ["clang-runtime"] }
+clap = { version = "3", features = ["cargo"] }

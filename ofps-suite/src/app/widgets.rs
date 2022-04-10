@@ -60,7 +60,7 @@ impl<T: for<'a> Deserialize<'a>> FileLoader<T> {
             ui,
             (&mut self.path, &mut self.data),
             |(path, _), _, file| {
-                **path = file.clone();
+                **path = file;
                 Ok(())
             },
             |(path, data), ui, is_waiting| {
@@ -97,11 +97,9 @@ impl<T: for<'a> Deserialize<'a>> FileLoader<T> {
                             if ui.button("Close").clicked() {
                                 **data = None;
                             }
-                        } else {
-                            if ui.button("Load").clicked() {
-                                if let Ok(Ok(new_data)) = File::open(path).map(deserialise) {
-                                    **data = Some(new_data);
-                                }
+                        } else if ui.button("Load").clicked() {
+                            if let Ok(Ok(new_data)) = File::open(path).map(deserialise) {
+                                **data = Some(new_data);
                             }
                         }
 
@@ -257,7 +255,7 @@ impl FilePicker {
                             }
                             path
                         })
-                        .map(|path| path_map(path))
+                        .map(path_map)
                         .as_ref()
                         .and_then(|f| f.to_str())
                         .map(<_>::into),
@@ -297,7 +295,7 @@ impl CreatePluginUi for EstimatorPlugin {
         ctx.plugin_store.create_estimator(plugin, arg)
     }
 
-    fn arg_ui(ui: &mut Ui, ctx: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
+    fn arg_ui(ui: &mut Ui, _: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
         ui.label("Arguments:");
 
         ui.add(TextEdit::singleline(&mut state.config.arg));
@@ -317,7 +315,7 @@ impl CreatePluginUi for DecoderPlugin {
         ctx.plugin_store.create_decoder(plugin, arg)
     }
 
-    fn arg_ui(ui: &mut Ui, ctx: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
+    fn arg_ui(ui: &mut Ui, _: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
         if ui
             .button(if state.config.extra {
                 "Input Path:"
@@ -345,21 +343,19 @@ impl CreatePluginUi for DecoderPlugin {
                     if is_waiting {
                         ui.label("Waiting...");
                         None
+                    } else if ui
+                        .button(
+                            if let Some(name) = filename.file_name().and_then(|s| s.to_str()) {
+                                name
+                            } else {
+                                "Open..."
+                            },
+                        )
+                        .clicked()
+                    {
+                        Some(false)
                     } else {
-                        if ui
-                            .button(
-                                if let Some(name) = filename.file_name().and_then(|s| s.to_str()) {
-                                    name
-                                } else {
-                                    "Open..."
-                                },
-                            )
-                            .clicked()
-                        {
-                            Some(false)
-                        } else {
-                            None
-                        }
+                        None
                     }
                 },
                 || {
@@ -390,7 +386,7 @@ impl CreatePluginUi for DetectorPlugin {
         ctx.plugin_store.create_detector(plugin, arg)
     }
 
-    fn arg_ui(ui: &mut Ui, ctx: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
+    fn arg_ui(ui: &mut Ui, _: &OfpsAppContext, state: &mut CreatePluginState<Self::Extra>) {
         ui.label("Arguments:");
 
         ui.add(TextEdit::singleline(&mut state.config.arg));
@@ -436,8 +432,7 @@ pub trait CreatePluginUi: Sized {
                 let mut selected_plugin = plugins
                     .iter()
                     .enumerate()
-                    .filter(|(_, v)| v == &&state.config.selected_plugin)
-                    .next()
+                    .find(|(_, v)| v == &&state.config.selected_plugin)
                     .map(|(i, _)| i)
                     .unwrap_or(0);
 

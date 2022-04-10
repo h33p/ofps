@@ -1,6 +1,5 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 
-use std::mem::MaybeUninit;
 use std::path::Path;
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -27,10 +26,7 @@ pub fn find_export_by_prefix(path: impl AsRef<Path>, prefix: &str) -> Result<Vec
 }
 
 #[cfg(target_os = "windows")]
-pub fn find_export_by_prefix(
-    path: impl AsRef<Path>,
-    prefix: &str,
-) -> crate::error::Result<Vec<String>> {
+pub fn find_export_by_prefix(path: impl AsRef<Path>, prefix: &str) -> Result<Vec<String>> {
     use goblin::pe::PE;
 
     let buffer = std::fs::read(path.as_ref())?;
@@ -51,10 +47,7 @@ pub fn find_export_by_prefix(
 }
 
 #[cfg(target_os = "macos")]
-pub fn find_export_by_prefix(
-    path: impl AsRef<Path>,
-    prefix: &str,
-) -> crate::error::Result<Vec<String>> {
+pub fn find_export_by_prefix(path: impl AsRef<Path>, prefix: &str) -> Result<Vec<String>> {
     use goblin::mach::Mach;
 
     let buffer = std::fs::read(path.as_ref())?;
@@ -65,14 +58,14 @@ pub fn find_export_by_prefix(
         Mach::Fat(mach) => (0..mach.narches)
             .filter_map(|i| mach.get(i).ok())
             .next()
-            .ok_or_else(|| anyhow!("failed to find valid MachO header!"))?,
+            .ok_or_else(|| anyhow::anyhow!("failed to find valid MachO header!"))?,
     };
 
     // macho symbols are prefixed with `_` in the object file.
     let macho_prefix = "_".to_owned() + prefix;
     Ok(macho
         .symbols
-        .ok_or_else(|| anyhow!("failed to parse MachO symbols!"))?
+        .ok_or_else(|| anyhow::anyhow!("failed to parse MachO symbols!"))?
         .iter()
         .filter_map(|s| s.ok())
         .filter_map(|(name, _)| {

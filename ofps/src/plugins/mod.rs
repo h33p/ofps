@@ -299,6 +299,12 @@ pub struct PluginStore {
     detectors: Vec<LibInstance<DetectorPlugin>>,
 }
 
+impl Default for PluginStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PluginStore {
     /// Create a new `PluginStore`.
     pub fn new() -> Self {

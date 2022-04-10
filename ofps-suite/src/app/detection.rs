@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use widgets::plot::{Arrows, Bar, BarChart, Line, Plot, Value, Values};
+use widgets::plot::{Arrows, Bar, BarChart, Plot, Value, Values};
 use wimrend::Renderer;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -93,7 +93,7 @@ impl MotionDetectionState {
     fn update(
         &mut self,
         out: &mut MotionDetectionOutput,
-        mut settings: MotionDetectionSettings,
+        settings: MotionDetectionSettings,
     ) -> bool {
         out.motion_vectors.clear();
         out.frame.clear();
@@ -276,21 +276,23 @@ impl OfpsCtxApp for MotionDetectionApp {
         &mut self,
         ctx: &Context,
         ofps_ctx: &Arc<OfpsAppContext>,
-        frame: &Frame,
-        _render_list: &mut Renderer,
+        _: &Frame,
+        _: &mut Renderer,
     ) {
         egui::SidePanel::left("detection_settings").show(ctx, |ui| {
             egui::trace!(ui);
 
             let mut config_state = std::mem::take(&mut self.config_state);
-            config_state.show_config(
+            if let Err(e) = config_state.show_config(
                 ui,
                 "Detection",
                 Self::load_cfg,
                 Self::save_cfg,
                 self,
                 ofps_ctx,
-            );
+            ) {
+                log::error!("{e}");
+            }
             self.config_state = config_state;
 
             ui.separator();
@@ -303,9 +305,11 @@ impl OfpsCtxApp for MotionDetectionApp {
                     ui.separator();
 
                     if let Some(app_state) = &self.app_state {
-                        let _ = app_state
-                            .settings()
-                            .map(|mut s| *s = self.settings.worker.clone());
+                        std::mem::drop(
+                            app_state
+                                .settings()
+                                .map(|mut s| *s = self.settings.worker.clone()),
+                        );
 
                         let mut app_state_lock = app_state.read();
 
@@ -342,52 +346,45 @@ impl OfpsCtxApp for MotionDetectionApp {
                             std::mem::drop(app_state_lock);
                             self.app_state = None;
                         }
-                    } else {
-                        if let Some(decoder) = self.pending_decoder.as_mut() {
-                            ui.label("Waiting for detector");
-                            let clicked_close = ui.button("Close").clicked();
+                    } else if let Some(decoder) = self.pending_decoder.as_mut() {
+                        ui.label("Waiting for detector");
+                        let clicked_close = ui.button("Close").clicked();
 
-                            let props = decoder
-                                .props()
-                                .into_iter()
-                                .map(|(n, p)| (n.to_string(), p))
-                                .collect();
+                        let props = decoder
+                            .props()
+                            .into_iter()
+                            .map(|(n, p)| (n.to_string(), p))
+                            .collect();
 
-                            properties_grid_ui(
-                                ui,
-                                "decoder_properties",
-                                &mut self.settings.worker.decoder_properties,
-                                Some(&props),
-                            );
+                        properties_grid_ui(
+                            ui,
+                            "decoder_properties",
+                            &mut self.settings.worker.decoder_properties,
+                            Some(&props),
+                        );
 
-                            if clicked_close {
-                                self.pending_decoder = None;
-                            }
-                        } else {
-                            ui.label("Open motion vectors");
-
-                            match DecoderPlugin::create_plugin_ui(
-                                ui,
-                                ofps_ctx,
-                                &mut self.create_decoder_state,
-                                0,
-                                realtime_processing_fn(
-                                    &mut self.settings.worker.realtime_processing,
-                                ),
-                            ) {
-                                Some(Ok(decoder)) => {
-                                    self.pending_decoder = Some(decoder);
-                                }
-                                _ => {}
-                            }
-
-                            properties_grid_ui(
-                                ui,
-                                "decoder_properties",
-                                &mut self.settings.worker.decoder_properties,
-                                None,
-                            );
+                        if clicked_close {
+                            self.pending_decoder = None;
                         }
+                    } else {
+                        ui.label("Open motion vectors");
+
+                        if let Some(Ok(decoder)) = DecoderPlugin::create_plugin_ui(
+                            ui,
+                            ofps_ctx,
+                            &mut self.create_decoder_state,
+                            0,
+                            realtime_processing_fn(&mut self.settings.worker.realtime_processing),
+                        ) {
+                            self.pending_decoder = Some(decoder);
+                        }
+
+                        properties_grid_ui(
+                            ui,
+                            "decoder_properties",
+                            &mut self.settings.worker.decoder_properties,
+                            None,
+                        );
                     }
 
                     ui.separator();
@@ -561,17 +558,14 @@ impl OfpsCtxApp for MotionDetectionApp {
                         } else {
                             ui.label("Open motion detector");
 
-                            match DetectorPlugin::create_plugin_ui(
+                            if let Some(Ok(detector)) = DetectorPlugin::create_plugin_ui(
                                 ui,
                                 ofps_ctx,
                                 &mut self.create_detector_state,
                                 1,
                                 |_| {},
                             ) {
-                                Some(Ok(detector)) => {
-                                    self.pending_detector = Some(detector);
-                                }
-                                _ => {}
+                                self.pending_detector = Some(detector);
                             }
 
                             detector_props_ui(
@@ -584,7 +578,6 @@ impl OfpsCtxApp for MotionDetectionApp {
                         };
 
                         std::mem::drop(output);
-                        std::mem::drop(app_state);
 
                         if clicked_close {
                             self.app_state = None;

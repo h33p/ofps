@@ -1,7 +1,12 @@
+# Parse OFPS Suite's statistics and summarize them for the LaTeX plots.
+
 import pandas as pd
 import numpy as np
 import os
 import math
+
+in_stats = 'mvec-stats/report2/'
+out_dir = 'docs/statistics/'
 
 def degs(v):
     return v * 180.0 / math.pi
@@ -103,9 +108,7 @@ def extract_stats(p):
 
     return out, perf_out
 
-out, perf_out = extract_stats('mvec-stats/report2/')
-
-out_dir = 'docs/statistics/'
+out, perf_out = extract_stats(in_stats)
 
 for prefix, out in [('err', out), ('perf', perf_out)]:
     for decoder in out:

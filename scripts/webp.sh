@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# This script converts a video file to webp format, used in slides.
+
 INPUT="$1"
 
 OUTPUT="$2"

@@ -13,7 +13,7 @@ mod egui_app;
 
 use egui_app::{EguiRenderState, GlobalEvent, GlobalRepaintSignal};
 use wgpu::SurfaceError;
-use wimrend::render_state::{RenderState, RenderSubState};
+use wimrend::render_state::RenderSubState;
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -32,10 +32,8 @@ fn main() -> Result<()> {
 
     let repaint_signal = Arc::new(GlobalRepaintSignal(Mutex::new(event_loop.create_proxy())));
 
-    let mut state = pollster::block_on(EguiRenderState::create_state(
-        window,
-        (app, repaint_signal.clone()),
-    ))?;
+    let mut state =
+        pollster::block_on(EguiRenderState::create_state(window, (app, repaint_signal)))?;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {

@@ -177,19 +177,16 @@ impl UniformObject {
     }
 }
 
+type TextureMap = BTreeMap<Option<UniqueArc<Texture>>, MeshMap>;
+type MeshMap = BTreeMap<UniqueArc<MeshDescriptor>, Vec<RenderObject>>;
+
 pub struct Renderer {
     device: Arc<Device>,
     queue: Arc<Queue>,
     pipeline_manager: RenderPipelineManager,
     mesh_manager: MeshManager,
     obj_count: usize,
-    objects: BTreeMap<
-        UniqueArc<RenderPipeline>,
-        BTreeMap<
-            Option<UniqueArc<Texture>>,
-            BTreeMap<UniqueArc<MeshDescriptor>, Vec<RenderObject>>,
-        >,
-    >,
+    objects: BTreeMap<UniqueArc<RenderPipeline>, TextureMap>,
     instance_buffer: Option<(usize, Buffer)>,
     line_material: Arc<Material>,
     camera: UniformObject,
@@ -356,7 +353,7 @@ impl Renderer {
         colour: na::Vector4<f32>,
         material: Arc<Material>,
     ) {
-        let mesh = self.mesh_manager.descriptor(mesh.clone());
+        let mesh = self.mesh_manager.descriptor(mesh);
 
         self.obj_count += 1;
 
@@ -365,7 +362,7 @@ impl Renderer {
             .or_default()
             .entry(material.texture().clone().map(<_>::into))
             .or_default()
-            .entry(mesh.clone().into())
+            .entry(mesh.into())
             .or_default()
             .push(RenderObject { transform, colour });
     }

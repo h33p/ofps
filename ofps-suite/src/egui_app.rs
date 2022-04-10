@@ -52,7 +52,7 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
     }
 
     fn update(&mut self, window: &Window, renderer: &mut Renderer) {
-        let input = self.state.take_egui_input(&window);
+        let input = self.state.take_egui_input(window);
         self.context.begin_frame(input);
         let app_output = epi::backend::AppOutput::default();
 
@@ -93,10 +93,10 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
 
         // Update textures.
         self.render_pass
-            .add_textures(&device, &queue, &output.textures_delta)?;
+            .add_textures(device, queue, &output.textures_delta)?;
         self.render_pass.remove_textures(output.textures_delta)?;
         self.render_pass
-            .update_buffers(&device, &queue, &paint_jobs, &screen_descriptor);
+            .update_buffers(device, queue, &paint_jobs, &screen_descriptor);
 
         // Draw GUI.
         self.render_pass

@@ -37,8 +37,7 @@ impl<T: RenderSubState> RenderState<T> {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
-        let instance =
-            Instance::new(util::backend_bits_from_env().unwrap_or_else(|| Backends::all()));
+        let instance = Instance::new(util::backend_bits_from_env().unwrap_or_else(Backends::all));
         let surface = unsafe { instance.create_surface(&window) };
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {

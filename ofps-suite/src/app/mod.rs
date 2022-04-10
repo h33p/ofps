@@ -55,10 +55,10 @@ pub trait OfpsCtxApp {
 
     fn late_update(
         &mut self,
-        ctx: &Context,
-        ofps_ctx: &Arc<OfpsAppContext>,
-        frame: &Frame,
-        render_list: &mut Renderer,
+        _ctx: &Context,
+        _ofps_ctx: &Arc<OfpsAppContext>,
+        _frame: &Frame,
+        _render_list: &mut Renderer,
     ) {
     }
 }
