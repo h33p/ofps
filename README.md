@@ -37,7 +37,13 @@ Good luck :)
 
 ### Building libmv estimator
 
-First, source the environment at the root of the repo
+First, make sure libmv submodule is initialised:
+
+```
+git submodule update --init
+```
+
+Then, source the environment at the root of the repo
 
 ```
 source env
