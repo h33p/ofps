@@ -111,7 +111,7 @@ ffmpeg -i /dev/video1 -c:v libx264 -r 30 -preset ultrafast -tune zerolatency -x2
 
 Adjust `/dev/video1` to correct V4L device. The command needs to be re-run after each connection instance.
 
-### Tracking Configurations}
+### Tracking Configurations
 
 Load predefined configuration files from the paths given (by clicking on the large tracking title button).
 
