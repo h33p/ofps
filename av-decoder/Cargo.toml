@@ -1,6 +1,6 @@
 [package]
 name = "av-decoder"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Aurimas Blažulionis <0x60@pm.me>"]
 description = "Extracts OFPS compatible motion vectors from MPEG streams"

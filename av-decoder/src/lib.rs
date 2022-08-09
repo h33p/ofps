@@ -130,7 +130,7 @@ impl<T: Read + ?Sized> AvContext<T> {
         buf: *mut u8,
         buf_size: c_int,
     ) -> c_int {
-        (*(opaque as *mut Box<T>))
+        let ret = (*(opaque as *mut Box<T>))
             .read(slice::from_raw_parts_mut(buf, buf_size as _))
             .map(|r| r as c_int)
             .map(|r| {
@@ -141,7 +141,14 @@ impl<T: Read + ?Sized> AvContext<T> {
                 error!("{}", e);
                 e
             })
-            .unwrap_or(-1)
+            .unwrap_or(-1);
+
+        // We do not allow files that get appended at the end
+        if ret == 0 && buf_size != 0 {
+            -1
+        } else {
+            ret
+        }
     }
 
     pub fn dump_format(&mut self) {
