@@ -1,13 +1,21 @@
 [package]
 name = "ofps"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Framework for efficient processing of optical flows/motion vectors"
+documentation = "https://docs.rs/ofps"
+readme = "../README.md"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "vision", "motion", "video", "optical" ]
+categories = [ "computer-vision", "science", "encoding", "algorithms" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 nalgebra = "0.30"
-ptrplus = { version = "1", path = "../ptrplus" }
+ptrplus = "2"
 bytemuck = { version = "1", features = [ "derive" ] }
 rand = "0.8"
 anyhow = { version = "1", features = ["std"] }

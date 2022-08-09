@@ -1,6 +1,5 @@
 use crate::egui_app::EguiApp;
 use egui::*;
-use epi::Frame;
 use ofps::prelude::v1::*;
 use std::sync::Arc;
 use wimrend::Renderer;
@@ -45,19 +44,12 @@ impl Default for OfpsApp {
 
 pub trait OfpsCtxApp {
     fn name(&self) -> &str;
-    fn update(
-        &mut self,
-        ctx: &Context,
-        ofps_ctx: &Arc<OfpsAppContext>,
-        frame: &Frame,
-        render_list: &mut Renderer,
-    );
+    fn update(&mut self, ctx: &Context, ofps_ctx: &Arc<OfpsAppContext>, render_list: &mut Renderer);
 
     fn late_update(
         &mut self,
         _ctx: &Context,
         _ofps_ctx: &Arc<OfpsAppContext>,
-        _frame: &Frame,
         _render_list: &mut Renderer,
     ) {
     }
@@ -68,7 +60,7 @@ impl EguiApp for OfpsApp {
         "OFPS Suite"
     }
 
-    fn update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer) {
+    fn update(&mut self, ctx: &Context, render_list: &mut Renderer) {
         TopBottomPanel::top("ofps_app_top_bar").show(ctx, |ui| {
             egui::trace!(ui);
 
@@ -89,13 +81,13 @@ impl EguiApp for OfpsApp {
         });
 
         if let Some(app) = self.apps.get_mut(self.selected_app) {
-            app.update(ctx, &self.ofps_ctx, frame, render_list);
+            app.update(ctx, &self.ofps_ctx, render_list);
         }
     }
 
-    fn late_update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer) {
+    fn late_update(&mut self, ctx: &Context, render_list: &mut Renderer) {
         if let Some(app) = self.apps.get_mut(self.selected_app) {
-            app.late_update(ctx, &self.ofps_ctx, frame, render_list);
+            app.late_update(ctx, &self.ofps_ctx, render_list);
         }
     }
 }

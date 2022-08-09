@@ -2,6 +2,13 @@
 name = "libmv-estimator"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Estimates camera motion using Blender's Libmv"
+documentation = "https://docs.rs/libmv-estimator"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "motion", "video", "libmv", "blender" ]
+categories = [ "computer-vision", "science", "algorithms" ]
 
 [lib]
 crate-type = ["lib", "cdylib"]

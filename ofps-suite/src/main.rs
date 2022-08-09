@@ -1,6 +1,5 @@
 use log::*;
 use ofps::prelude::v1::*;
-use std::sync::{Arc, Mutex};
 
 use winit::{
     event::*,
@@ -11,7 +10,7 @@ use winit::{
 mod app;
 mod egui_app;
 
-use egui_app::{EguiRenderState, GlobalEvent, GlobalRepaintSignal};
+use egui_app::EguiRenderState;
 use wgpu::SurfaceError;
 use wimrend::render_state::RenderSubState;
 
@@ -30,12 +29,9 @@ fn main() -> Result<()> {
 
     let app = app::OfpsApp::default();
 
-    let repaint_signal = Arc::new(GlobalRepaintSignal(Mutex::new(event_loop.create_proxy())));
+    let mut state = pollster::block_on(EguiRenderState::create_state(window, app))?;
 
-    let mut state =
-        pollster::block_on(EguiRenderState::create_state(window, (app, repaint_signal)))?;
-
-    event_loop.run(move |event, _, control_flow| match event {
+    event_loop.run(move |event: Event<()>, _, control_flow| match event {
         Event::RedrawRequested(_) => {
             state.update();
 
@@ -81,7 +77,7 @@ fn main() -> Result<()> {
             }
             _ => {}
         },
-        Event::MainEventsCleared | Event::UserEvent(GlobalEvent::RequestRedraw) => {
+        Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually
             // request it.
             state.window.request_redraw();

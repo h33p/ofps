@@ -10,7 +10,6 @@ use super::widgets::{
 };
 use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
-use epi::Frame;
 use nalgebra as na;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
@@ -462,24 +461,12 @@ impl OfpsCtxApp for MotionTrackingApp {
         "Tracking"
     }
 
-    fn late_update(
-        &mut self,
-        ctx: &Context,
-        _: &Arc<OfpsAppContext>,
-        _: &Frame,
-        renderer: &mut Renderer,
-    ) {
+    fn late_update(&mut self, ctx: &Context, _: &Arc<OfpsAppContext>, renderer: &mut Renderer) {
         self.camera_controller.update(ctx);
         self.camera_controller.on_render(renderer, ctx);
     }
 
-    fn update(
-        &mut self,
-        ctx: &Context,
-        ofps_ctx: &Arc<OfpsAppContext>,
-        _: &Frame,
-        renderer: &mut Renderer,
-    ) {
+    fn update(&mut self, ctx: &Context, ofps_ctx: &Arc<OfpsAppContext>, renderer: &mut Renderer) {
         self.tracking_step(renderer);
 
         self.render(renderer);

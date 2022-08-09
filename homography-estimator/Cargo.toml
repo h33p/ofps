@@ -2,6 +2,13 @@
 name = "homography-estimator"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Estimates camera motion using homography"
+documentation = "https://docs.rs/homography-estimator"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "motion", "video", "opencv", "homography" ]
+categories = [ "computer-vision", "science", "algorithms" ]
 
 [lib]
 crate-type = ["lib", "cdylib"]

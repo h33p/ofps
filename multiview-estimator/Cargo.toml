@@ -2,6 +2,13 @@
 name = "multiview-estimator"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Estimates camera motion using OpenCV's multiple view geometry estimator"
+documentation = "https://docs.rs/multiview-estimator"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "vision", "motion", "video", "opencv" ]
+categories = [ "computer-vision", "science", "algorithms" ]
 
 [lib]
 crate-type = ["lib", "cdylib"]

@@ -2,6 +2,13 @@
 name = "motion-extract"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Extracts optical flow in OFPS-specific format"
+documentation = "https://docs.rs/motion-extract"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "vision", "motion", "video", "optical" ]
+categories = [ "command-line-utilities", "computer-vision", "science", "algorithms" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

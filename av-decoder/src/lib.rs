@@ -4,7 +4,7 @@ use ::core::ffi::c_void;
 use ::core::ops::{Deref, DerefMut};
 use ::core::{ptr, slice};
 use c_str_macro::c_str;
-use ffmpeg_sys::*;
+use ffmpeg_sys_next::*;
 use libc::c_int;
 use log::*;
 use nalgebra as na;
@@ -227,7 +227,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
                 AVMediaType::AVMEDIA_TYPE_VIDEO,
                 -1,
                 -1,
-                decoder.as_mut_ptr(),
+                decoder.as_mut_ptr() as *mut _ as *mut *const AVCodec,
                 0,
             )
         } {
@@ -235,7 +235,7 @@ impl<T: Read + ?Sized> AvDecoder<T> {
             i => Ok(i),
         }?;
 
-        let mut codec_ctx = unsafe { avcodec_alloc_context3(decoder.as_ptr()).as_mut() }
+        let mut codec_ctx = unsafe { avcodec_alloc_context3(decoder.as_deref().as_ptr()).as_mut() }
             .ok_or_else(|| anyhow!("Failed to allocate codec context"))?;
 
         let stream = unsafe { (*av_ctx.fmt_ctx.streams.offset(stream_idx as _)).as_mut() }
@@ -268,7 +268,8 @@ impl<T: Read + ?Sized> AvDecoder<T> {
             );
         }
 
-        match unsafe { avcodec_open2(codec_ctx, decoder.as_ptr(), av_opts.as_mut_ptr()) } {
+        match unsafe { avcodec_open2(codec_ctx, decoder.as_deref().as_ptr(), av_opts.as_mut_ptr()) }
+        {
             e if e < 0 => {
                 unsafe { avcodec_free_context(codec_ctx.as_mut_ptr()) };
                 return Err(anyhow!("Failed to open codec ({})", e));

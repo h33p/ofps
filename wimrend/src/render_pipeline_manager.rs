@@ -121,7 +121,7 @@ impl RenderPipelineManager {
         pipelines
             .entry(info)
             .or_insert_with_key(|info| {
-                let shader = device.create_shader_module(&ShaderModuleDescriptor {
+                let shader = device.create_shader_module(ShaderModuleDescriptor {
                     label: info.label,
                     source: ShaderSource::Wgsl(info.shader.into()),
                 });
@@ -155,11 +155,11 @@ impl RenderPipelineManager {
                         fragment: Some(FragmentState {
                             module: &shader,
                             entry_point: "fs_main",
-                            targets: &[ColorTargetState {
+                            targets: &[Some(ColorTargetState {
                                 format: *surface_format,
                                 blend: Some(BlendState::REPLACE),
                                 write_mask: ColorWrites::ALL,
-                            }],
+                            })],
                         }),
                         primitive: PrimitiveState {
                             topology: PrimitiveTopology::TriangleList,

@@ -13,7 +13,6 @@ members = [
 	"flow-extract",
 	"av-decoder",
 	"cv-decoder",
-	"ptrplus",
 	"libmv-rust",
 	"almeida-estimator",
 	"libmv-estimator",

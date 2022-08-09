@@ -2,6 +2,13 @@
 name = "motion-loader"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Thin shim for loading either an OFPS decoder plugin or .mvec parser"
+documentation = "https://docs.rs/motion-loader"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "vision", "motion", "video", "optical" ]
+categories = [ "computer-vision", "parsing" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

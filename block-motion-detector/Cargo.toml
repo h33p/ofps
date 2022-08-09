@@ -2,6 +2,13 @@
 name = "block-motion-detector"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Detects frame motion in a OFPS motion field"
+documentation = "https://docs.rs/block-motion-detector"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "ofps", "vision", "motion", "video", "optical" ]
+categories = [ "computer-vision", "science", "algorithms" ]
 
 [lib]
 crate-type = ["lib", "cdylib"]

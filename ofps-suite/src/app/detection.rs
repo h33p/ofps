@@ -11,7 +11,6 @@ use super::widgets::{
 };
 use super::{OfpsAppContext, OfpsCtxApp};
 use egui::*;
-use epi::Frame;
 use itertools::*;
 use ofps::prelude::v1::*;
 use serde::{Deserialize, Serialize};
@@ -272,13 +271,7 @@ impl OfpsCtxApp for MotionDetectionApp {
         "Detection"
     }
 
-    fn update(
-        &mut self,
-        ctx: &Context,
-        ofps_ctx: &Arc<OfpsAppContext>,
-        _: &Frame,
-        _: &mut Renderer,
-    ) {
+    fn update(&mut self, ctx: &Context, ofps_ctx: &Arc<OfpsAppContext>, _: &mut Renderer) {
         egui::SidePanel::left("detection_settings").show(ctx, |ui| {
             egui::trace!(ui);
 

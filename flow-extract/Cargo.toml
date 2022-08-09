@@ -2,6 +2,13 @@
 name = "flow-extract"
 version = "0.1.0"
 edition = "2021"
+authors = ["Aurimas Blažulionis <0x60@pm.me>"]
+description = "Extracts optical flow as .flo frames using OpenCV"
+documentation = "https://docs.rs/flow-extract"
+repository = "https://github.com/h33p/ofps"
+license = "MIT"
+keywords = [ "vision", "motion", "video", "optical", "opencv" ]
+categories = [ "command-line-utilities", "computer-vision", "science", "algorithms" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

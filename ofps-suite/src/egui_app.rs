@@ -2,8 +2,7 @@ use anyhow::Result;
 use egui::Context;
 use egui_wgpu_backend::{RenderPass, ScreenDescriptor};
 use egui_winit::State;
-use epi::Frame;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use wgpu::*;
 use winit::{event::*, window::Window};
 
@@ -15,8 +14,8 @@ use wimrend::Renderer;
 
 pub trait EguiApp {
     fn name(&self) -> &str;
-    fn update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer);
-    fn late_update(&mut self, ctx: &Context, frame: &Frame, render_list: &mut Renderer);
+    fn update(&mut self, ctx: &Context, render_list: &mut Renderer);
+    fn late_update(&mut self, ctx: &Context, render_list: &mut Renderer);
 }
 
 /// GUI part of the render state.
@@ -25,25 +24,23 @@ pub struct EguiRenderState<T> {
     state: State,
     context: egui::Context,
     app: T,
-    repaint_signal: Arc<GlobalRepaintSignal>,
 }
 
 impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
-    type InitData = (T, Arc<GlobalRepaintSignal>);
+    type InitData = T;
 
     fn create(
         device: &Arc<Device>,
         format: TextureFormat,
         window: &Window,
         msaa_samples: u32,
-        (app, repaint_signal): (T, Arc<GlobalRepaintSignal>),
+        app: T,
     ) -> Self {
         Self {
             render_pass: RenderPass::new(device, format, msaa_samples),
             state: State::new(4096, window),
             context: Default::default(),
             app,
-            repaint_signal,
         }
     }
 
@@ -54,22 +51,8 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
     fn update(&mut self, window: &Window, renderer: &mut Renderer) {
         let input = self.state.take_egui_input(window);
         self.context.begin_frame(input);
-        let app_output = epi::backend::AppOutput::default();
-
-        let frame = epi::Frame::new(epi::backend::FrameData {
-            info: epi::IntegrationInfo {
-                name: "ofps_suite",
-                web_info: None,
-                cpu_usage: None,
-                native_pixels_per_point: Some(window.scale_factor() as _),
-                prefer_dark_mode: None,
-            },
-            output: app_output,
-            repaint_signal: self.repaint_signal.clone(),
-        });
-
-        self.app.update(&self.context, &frame, renderer);
-        self.app.late_update(&self.context, &frame, renderer);
+        self.app.update(&self.context, renderer);
+        self.app.late_update(&self.context, renderer);
     }
 
     fn render(
@@ -108,25 +91,5 @@ impl<T: EguiApp> RenderSubState for EguiRenderState<T> {
                 None,
             )
             .map_err(<_>::into)
-    }
-}
-
-/// Custom redraw event to be sent to the parent winit event loop.
-pub enum GlobalEvent {
-    RequestRedraw,
-}
-
-/// This is the repaint signal type that egui needs for requesting a repaint from another thread.
-///
-/// It sends the custom RequestRedraw event to the winit event loop.
-pub struct GlobalRepaintSignal(pub Mutex<winit::event_loop::EventLoopProxy<GlobalEvent>>);
-
-impl epi::backend::RepaintSignal for GlobalRepaintSignal {
-    fn request_repaint(&self) {
-        self.0
-            .lock()
-            .unwrap()
-            .send_event(GlobalEvent::RequestRedraw)
-            .ok();
     }
 }

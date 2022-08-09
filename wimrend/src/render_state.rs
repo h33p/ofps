@@ -62,8 +62,9 @@ impl<T: RenderSubState> RenderState<T> {
         let device = Arc::new(device);
         let queue = Arc::new(queue);
 
-        let surface_format = surface
-            .get_preferred_format(&adapter)
+        let surface_format = *surface
+            .get_supported_formats(&adapter)
+            .get(0)
             .ok_or_else(|| anyhow!("Failed to get preferred format"))?;
 
         let config = SurfaceConfiguration {
@@ -193,7 +194,7 @@ impl<T: RenderSubState> RenderState<T> {
         {
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Render Pass"),
-                color_attachments: &[RenderPassColorAttachment {
+                color_attachments: &[Some(RenderPassColorAttachment {
                     view,
                     resolve_target: None,
                     ops: Operations {
@@ -205,7 +206,7 @@ impl<T: RenderSubState> RenderState<T> {
                         }),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
                     view: &self.depth_texture.view,
                     depth_ops: Some(Operations {
@@ -234,14 +235,14 @@ impl<T: RenderSubState> RenderState<T> {
         if resolve_target.is_some() {
             let _ = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("Resolve Pass"),
-                color_attachments: &[RenderPassColorAttachment {
+                color_attachments: &[Some(RenderPassColorAttachment {
                     view,
                     resolve_target,
                     ops: Operations {
                         load: LoadOp::Load,
                         store: false,
                     },
-                }],
+                })],
                 depth_stencil_attachment: None,
             });
         }
